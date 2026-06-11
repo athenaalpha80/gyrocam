@@ -20,13 +20,19 @@ class IosCameraBridge {
   }
 
   Future<MotionDataCapabilities> getMotionDataCapabilities() async {
-    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
-      'getMotionDataCapabilities',
-    );
-    if (raw == null) {
-      throw const CameraBridgeException('missing-motion-capabilities');
+    try {
+      final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'getMotionDataCapabilities',
+      );
+      if (raw == null) {
+        return const MotionDataCapabilities.safeFallback();
+      }
+      return MotionDataCapabilities.fromMap(raw);
+    } on MissingPluginException {
+      return const MotionDataCapabilities.safeFallback();
+    } on PlatformException {
+      return const MotionDataCapabilities.safeFallback();
     }
-    return MotionDataCapabilities.fromMap(raw);
   }
 
   Future<void> applyCaptureFormat(ManualCameraSettings settings) async {

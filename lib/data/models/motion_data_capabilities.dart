@@ -24,6 +24,12 @@ class MotionDataCapabilities {
     );
   }
 
+  const MotionDataCapabilities.safeFallback()
+    : isSupported = true,
+      sampleRateOptionsHz = const <int>[50, 100],
+      minSampleRateHz = 50,
+      maxSampleRateHz = 100;
+
   final bool isSupported;
   final List<int> sampleRateOptionsHz;
   final int minSampleRateHz;

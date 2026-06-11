@@ -7,10 +7,6 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
-    if let registrar = registrar(forPlugin: "ManualCameraControlPlugin") {
-      ManualCameraControlPlugin.register(with: registrar)
-    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

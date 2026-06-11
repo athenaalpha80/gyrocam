@@ -139,15 +139,19 @@ class CameraViewModel extends ChangeNotifier {
 
     try {
       _rearCamera = await _cameraRepository.getRearCameraDescription();
-      _motionDataCapabilities =
-          await _cameraRepository.getMotionDataCapabilities();
+      final rawCapabilities =
+          await _cameraRepository.getRearCameraCapabilities();
+      _capabilities = _filterCapabilities(rawCapabilities);
+      try {
+        _motionDataCapabilities =
+            await _cameraRepository.getMotionDataCapabilities();
+      } catch (_) {
+        _motionDataCapabilities = const MotionDataCapabilities.safeFallback();
+      }
       _motionDataEnabled = _motionDataCapabilities?.isSupported ?? false;
       _sampleRateHz = _pickDefaultSampleRate(
         _motionDataCapabilities?.sampleRateOptionsHz ?? const <int>[],
       );
-      final rawCapabilities =
-          await _cameraRepository.getRearCameraCapabilities();
-      _capabilities = _filterCapabilities(rawCapabilities);
       if (_capabilities!.formats.isEmpty) {
         throw StateError('No rear video formats were exposed by AVFoundation.');
       }
