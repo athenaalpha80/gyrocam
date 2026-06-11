@@ -6,6 +6,7 @@ import 'dart:math' show atan2, pi, sqrt;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../../data/models/camera_capabilities.dart';
 import '../../../../data/models/manual_camera_settings.dart';
@@ -491,6 +492,7 @@ class CameraViewModel extends ChangeNotifier {
         );
       }
 
+      await WakelockPlus.enable();
       await controller.lockCaptureOrientation();
 
       await controller.startVideoRecording();
@@ -537,6 +539,7 @@ class CameraViewModel extends ChangeNotifier {
     } catch (error) {
       _errorMessage = error.toString();
     } finally {
+      await WakelockPlus.disable();
       _isRecording = false;
       _activeSessionPaths = null;
       _recordingTimer?.cancel();
