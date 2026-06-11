@@ -5,7 +5,6 @@ import 'dart:math' show atan2, pi, sqrt;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../../../data/models/camera_capabilities.dart';
@@ -52,7 +51,7 @@ class CameraViewModel extends ChangeNotifier {
   bool get isInitializing => _isInitializing;
 
   bool _isRecording = false;
-  bool _isOrientationLocked = false;
+  final bool _isOrientationLocked = false;
   bool get isOrientationLocked => _isOrientationLocked;
   bool get isRecording => _isRecording;
 
