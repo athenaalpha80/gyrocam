@@ -1,30 +1,34 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:gyrocam/main.dart';
+import 'package:gyrocam/data/services/gyro_csv_formatter.dart';
+import 'package:gyrocam/data/services/recording_storage_service.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  test('gcsv header contains gyroflow metadata and filename', () {
+    final header = GyroCsvFormatter.buildHeader(
+      context: const RecordingHeaderContext(
+        videoFileName: 'gyrocam_20260611_180000.mov',
+        orientation: 'XYZ',
+        unixTimestampSeconds: 1718123456,
+      ),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(header, contains('GYROFLOW IMU LOG'));
+    expect(header, contains('videofilename,gyrocam_20260611_180000.mov'));
+    expect(header, contains('orientation,XYZ'));
+    expect(header, contains('t,gx,gy,gz,ax,ay,az'));
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  test('gcsv row converts accelerometer values to g', () {
+    final row = GyroCsvFormatter.buildDataRow(
+      elapsedMicros: 1500,
+      gx: 0.5,
+      gy: -0.25,
+      gz: 1.25,
+      axMetersPerSecondSquared: 9.80665,
+      ayMetersPerSecondSquared: 0,
+      azMetersPerSecondSquared: -9.80665,
+    );
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(row, '1500,0.500000,-0.250000,1.250000,1.000000,0.000000,-1.000000');
   });
 }

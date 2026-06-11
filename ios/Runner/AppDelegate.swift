@@ -11,6 +11,10 @@ import UIKit
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    let registry = engineBridge.pluginRegistry
+    GeneratedPluginRegistrant.register(with: registry)
+    ManualCameraControlPlugin.register(
+      with: registry.registrar(forPlugin: "ManualCameraControlPlugin")
+    )
   }
 }
