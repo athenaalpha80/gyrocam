@@ -197,6 +197,7 @@ class _TopBar extends StatelessWidget {
                   ? CupertinoIcons.bolt_fill
                   : CupertinoIcons.bolt_slash_fill,
               onTap: () => viewModel.setTorchEnabled(!viewModel.torchEnabled),
+              orientationTurns: viewModel.orientationTurns,
             ),
           ),
           Center(
@@ -228,6 +229,7 @@ class _TopBar extends StatelessWidget {
             child: _TopIconButton(
               icon: CupertinoIcons.settings,
               onTap: () => _openSettings(context, viewModel),
+              orientationTurns: viewModel.orientationTurns,
             ),
           ),
         ],
@@ -240,24 +242,31 @@ class _TopIconButton extends StatelessWidget {
   const _TopIconButton({
     required this.icon,
     required this.onTap,
+    required this.orientationTurns,
   });
 
   final IconData icon;
   final VoidCallback onTap;
+  final double orientationTurns;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: const Color(0x22101010),
-          borderRadius: BorderRadius.circular(16),
+      child: AnimatedRotation(
+        turns: orientationTurns,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: const Color(0x22101010),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Icon(icon, color: Colors.white, size: 17),
         ),
-        child: Icon(icon, color: Colors.white, size: 17),
       ),
     );
   }
@@ -343,6 +352,7 @@ class _QuickControlStrip extends StatelessWidget {
                 viewModel.activeQuickControl == QuickControlPanel.resolution,
             onTap: () =>
                 viewModel.toggleQuickControl(QuickControlPanel.resolution),
+            orientationTurns: viewModel.orientationTurns,
           ),
         ),
         Expanded(
@@ -353,6 +363,7 @@ class _QuickControlStrip extends StatelessWidget {
                 viewModel.activeQuickControl == QuickControlPanel.frameRate,
             onTap: () =>
                 viewModel.toggleQuickControl(QuickControlPanel.frameRate),
+            orientationTurns: viewModel.orientationTurns,
           ),
         ),
         Expanded(
@@ -363,6 +374,7 @@ class _QuickControlStrip extends StatelessWidget {
                 viewModel.activeQuickControl == QuickControlPanel.exposure,
             onTap: () =>
                 viewModel.toggleQuickControl(QuickControlPanel.exposure),
+            orientationTurns: viewModel.orientationTurns,
           ),
         ),
         Expanded(
@@ -373,6 +385,7 @@ class _QuickControlStrip extends StatelessWidget {
                 : viewModel.manualFocus.toStringAsFixed(2),
             selected: viewModel.activeQuickControl == QuickControlPanel.focus,
             onTap: () => viewModel.toggleQuickControl(QuickControlPanel.focus),
+            orientationTurns: viewModel.orientationTurns,
           ),
         ),
         Expanded(
@@ -385,6 +398,7 @@ class _QuickControlStrip extends StatelessWidget {
                 viewModel.activeQuickControl == QuickControlPanel.whiteBalance,
             onTap: () =>
                 viewModel.toggleQuickControl(QuickControlPanel.whiteBalance),
+            orientationTurns: viewModel.orientationTurns,
           ),
         ),
       ],
@@ -417,12 +431,14 @@ class _QuickControlButton extends StatelessWidget {
     required this.value,
     required this.selected,
     required this.onTap,
+    required this.orientationTurns,
   });
 
   final String label;
   final String value;
   final bool selected;
   final VoidCallback onTap;
+  final double orientationTurns;
 
   @override
   Widget build(BuildContext context) {
@@ -437,43 +453,48 @@ class _QuickControlButton extends StatelessWidget {
             fontSize: 14,
             fontWeight: FontWeight.w700,
           ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? const Color(0xFFFFCC33) : Colors.white70,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.8,
+        child: AnimatedRotation(
+          turns: orientationTurns,
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? const Color(0xFFFFCC33) : Colors.white70,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                ),
               ),
-            ),
-            const SizedBox(height: 3),
-            DefaultTextStyle(
-              style: TextStyle(
-                color: selected ? const Color(0xFFFFCC33) : Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
+              const SizedBox(height: 3),
+              DefaultTextStyle(
+                style: TextStyle(
+                  color: selected ? const Color(0xFFFFCC33) : Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+                child: Text(
+                  value,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              child: Text(
-                value,
-                overflow: TextOverflow.ellipsis,
+              const SizedBox(height: 5),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: selected ? 24 : 0,
+                height: 2,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFCC33),
+                  borderRadius: BorderRadius.circular(999),
+                ),
               ),
-            ),
-            const SizedBox(height: 5),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: selected ? 24 : 0,
-              height: 2,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFCC33),
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+        ),
       ),
     );
   }

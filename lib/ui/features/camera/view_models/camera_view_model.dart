@@ -1,9 +1,11 @@
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:async';
+import 'dart:math' show atan2, pi, sqrt;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../../../data/models/camera_capabilities.dart';
 import '../../../../data/models/manual_camera_settings.dart';
@@ -117,11 +119,16 @@ class CameraViewModel extends ChangeNotifier {
   Offset? _focusReticle;
   Offset? get focusReticle => _focusReticle;
 
+  double get orientationTurns => _orientationTurns;
+
   RecordingSessionPaths? _activeSessionPaths;
   Timer? _recordingTimer;
   Timer? _nativeApplyDebounce;
   Timer? _focusReticleTimer;
   bool _disposed = false;
+
+  double _orientationTurns = 0;
+  StreamSubscription<AccelerometerEvent>? _tiltSubscription;
 
   static const String defaultImuOrientation = 'XYZ';
   static const List<int> commonIsoValues = <int>[
@@ -184,6 +191,7 @@ class CameraViewModel extends ChangeNotifier {
       return;
     }
 
+    _startTiltTracking();
     _isInitializing = true;
     _errorMessage = null;
     _notify();
@@ -600,6 +608,31 @@ class CameraViewModel extends ChangeNotifier {
     );
   }
 
+  void _startTiltTracking() {
+    _tiltSubscription?.cancel();
+    _tiltSubscription = accelerometerEventStream(
+      samplingPeriod: const Duration(milliseconds: 33),
+    ).listen(_onAccelerometerEvent);
+  }
+
+  void _onAccelerometerEvent(AccelerometerEvent event) {
+    final xyMagnitude = sqrt(event.x * event.x + event.y * event.y);
+    if (xyMagnitude < 0.5) return;
+
+    final turns = _snappedTurns(atan2(event.x, -event.y));
+    if (turns != _orientationTurns) {
+      _orientationTurns = turns;
+      _notify();
+    }
+  }
+
+  double _snappedTurns(double angle) {
+    if (angle > pi * 0.75 || angle < -pi * 0.75) return 0;
+    if (angle > pi * 0.25) return 0.25;
+    if (angle < -pi * 0.25) return -0.25;
+    return 0;
+  }
+
   CameraFormatOption _pickDefaultFormat(List<CameraFormatOption> formats) {
     return formats.firstWhere(
       (format) => format.width == 3840 && format.height == 2160,
@@ -781,6 +814,7 @@ class CameraViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _tiltSubscription?.cancel();
     _nativeApplyDebounce?.cancel();
     _recordingTimer?.cancel();
     _focusReticleTimer?.cancel();
