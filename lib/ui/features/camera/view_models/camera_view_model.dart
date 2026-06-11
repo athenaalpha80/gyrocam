@@ -51,6 +51,9 @@ class CameraViewModel extends ChangeNotifier {
   bool _isRecording = false;
   bool get isRecording => _isRecording;
 
+  bool _isStartingRecording = false;
+  bool get isStartingRecording => _isStartingRecording;
+
   bool _stabilizationEnabled = false;
   bool get stabilizationEnabled => _stabilizationEnabled;
 
@@ -93,8 +96,11 @@ class CameraViewModel extends ChangeNotifier {
   int _sampleRateHz = 100;
   int get sampleRateHz => _sampleRateHz;
 
-  ManualControlPanel _activePanel = ManualControlPanel.resolution;
-  ManualControlPanel get activePanel => _activePanel;
+  QuickControlPanel _activeQuickControl = QuickControlPanel.none;
+  QuickControlPanel get activeQuickControl => _activeQuickControl;
+
+  ExposureControlMode _activeExposureControl = ExposureControlMode.iso;
+  ExposureControlMode get activeExposureControl => _activeExposureControl;
 
   Duration _recordingDuration = Duration.zero;
   Duration get recordingDuration => _recordingDuration;
@@ -114,9 +120,54 @@ class CameraViewModel extends ChangeNotifier {
   RecordingSessionPaths? _activeSessionPaths;
   Timer? _recordingTimer;
   Timer? _nativeApplyDebounce;
+  Timer? _focusReticleTimer;
   bool _disposed = false;
 
   static const String defaultImuOrientation = 'XYZ';
+  static const List<int> commonIsoValues = <int>[
+    25,
+    32,
+    40,
+    50,
+    64,
+    80,
+    100,
+    125,
+    160,
+    200,
+    250,
+    320,
+    400,
+    500,
+    640,
+    800,
+    1000,
+    1250,
+    1600,
+    2000,
+    2500,
+    3200,
+  ];
+  static const List<int> commonShutterReciprocals = <int>[
+    24,
+    25,
+    30,
+    48,
+    50,
+    60,
+    96,
+    100,
+    120,
+    125,
+    180,
+    240,
+    250,
+    500,
+    1000,
+    2000,
+    4000,
+    8000,
+  ];
   static const List<int> whiteBalanceOptions = <int>[
     2800,
     3200,
@@ -157,7 +208,7 @@ class CameraViewModel extends ChangeNotifier {
       }
       _selectedFormat = _pickDefaultFormat(_capabilities!.formats);
       _selectedFps = _pickDefaultFps(_selectedFormat!);
-      _iso = _capabilities!.minIso.clamp(50, _capabilities!.maxIso).toDouble();
+      _iso = _pickDefaultIso(_capabilities!).toDouble();
       _shutterMicros = _pickDefaultShutter(_selectedFps);
       await _buildController();
     } catch (error) {
@@ -170,8 +221,24 @@ class CameraViewModel extends ChangeNotifier {
 
   Future<void> refreshCamera() => initialize();
 
-  Future<void> selectPanel(ManualControlPanel panel) async {
-    _activePanel = panel;
+  bool get isQuickControlOpen => _activeQuickControl != QuickControlPanel.none;
+
+  Future<void> toggleQuickControl(QuickControlPanel panel) async {
+    _activeQuickControl =
+        _activeQuickControl == panel ? QuickControlPanel.none : panel;
+    _notify();
+  }
+
+  Future<void> closeQuickControl() async {
+    if (!isQuickControlOpen) {
+      return;
+    }
+    _activeQuickControl = QuickControlPanel.none;
+    _notify();
+  }
+
+  Future<void> selectExposureControlMode(ExposureControlMode mode) async {
+    _activeExposureControl = mode;
     _notify();
   }
 
@@ -182,8 +249,12 @@ class CameraViewModel extends ChangeNotifier {
     _selectedFormat = format;
     if (!format.supportsFps(_selectedFps)) {
       _selectedFps = _pickDefaultFps(format);
-      _shutterMicros = _pickDefaultShutter(_selectedFps);
     }
+    final capabilities = _capabilities;
+    if (capabilities != null) {
+      _iso = _pickDefaultIso(capabilities).toDouble();
+    }
+    _shutterMicros = _pickDefaultShutter(_selectedFps);
     await _buildController();
   }
 
@@ -217,13 +288,20 @@ class CameraViewModel extends ChangeNotifier {
   Future<void> setFocusMode(FocusAssistMode mode) async {
     _focusMode = mode;
     if (mode == FocusAssistMode.auto) {
+      _manualFocus = 0.5;
       await _controller?.setFocusMode(FocusMode.auto);
+    } else {
+      _clearFocusReticle();
     }
     _scheduleNativeApply();
     _notify();
   }
 
   Future<void> setManualFocus(double value) async {
+    if (_focusMode == FocusAssistMode.auto) {
+      _focusMode = FocusAssistMode.locked;
+    }
+    _clearFocusReticle();
     _manualFocus = value.clamp(0, 1);
     _scheduleNativeApply();
     _notify();
@@ -232,6 +310,11 @@ class CameraViewModel extends ChangeNotifier {
   Future<void> setExposureMode(ExposureAssistMode mode) async {
     _exposureMode = mode;
     if (mode == ExposureAssistMode.auto) {
+      final capabilities = _capabilities;
+      if (capabilities != null) {
+        _iso = _pickDefaultIso(capabilities).toDouble();
+      }
+      _shutterMicros = _pickDefaultShutter(_selectedFps);
       await _controller?.setExposureMode(ExposureMode.auto);
     }
     _scheduleNativeApply();
@@ -243,6 +326,9 @@ class CameraViewModel extends ChangeNotifier {
     if (capabilities == null) {
       return;
     }
+    if (_exposureMode == ExposureAssistMode.auto) {
+      _exposureMode = ExposureAssistMode.custom;
+    }
     _iso = value.clamp(capabilities.minIso, capabilities.maxIso);
     _scheduleNativeApply();
     _notify();
@@ -253,6 +339,9 @@ class CameraViewModel extends ChangeNotifier {
     if (capabilities == null) {
       return;
     }
+    if (_exposureMode == ExposureAssistMode.auto) {
+      _exposureMode = ExposureAssistMode.custom;
+    }
     _shutterMicros = value
         .round()
         .clamp(capabilities.minShutterMicros, capabilities.maxShutterMicros);
@@ -262,11 +351,17 @@ class CameraViewModel extends ChangeNotifier {
 
   Future<void> setWhiteBalanceMode(WhiteBalanceAssistMode mode) async {
     _whiteBalanceMode = mode;
+    if (mode == WhiteBalanceAssistMode.auto) {
+      _whiteBalanceKelvin = 5600;
+    }
     _scheduleNativeApply();
     _notify();
   }
 
   Future<void> setWhiteBalanceKelvin(int value) async {
+    if (_whiteBalanceMode == WhiteBalanceAssistMode.auto) {
+      _whiteBalanceMode = WhiteBalanceAssistMode.locked;
+    }
     _whiteBalanceKelvin = value;
     _scheduleNativeApply();
     _notify();
@@ -322,7 +417,9 @@ class CameraViewModel extends ChangeNotifier {
     required Size previewSize,
   }) async {
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        _focusMode != FocusAssistMode.auto) {
       return;
     }
     final normalized = Offset(
@@ -330,30 +427,42 @@ class CameraViewModel extends ChangeNotifier {
       (localPosition.dy / previewSize.height).clamp(0.0, 1.0),
     );
     _focusReticle = normalized;
+    _focusReticleTimer?.cancel();
+    _focusReticleTimer = Timer(const Duration(milliseconds: 1200), () {
+      _focusReticle = null;
+      _notify();
+    });
     await controller.setFocusPoint(normalized);
     await controller.setExposurePoint(normalized);
     _notify();
   }
 
+  void _clearFocusReticle() {
+    _focusReticleTimer?.cancel();
+    _focusReticleTimer = null;
+    _focusReticle = null;
+  }
+
   Future<void> startRecording() async {
     final controller = _controller;
-    if (controller == null || _isRecording) {
+    if (controller == null || _isRecording || _isStartingRecording) {
       return;
     }
 
     _errorMessage = null;
+    _isStartingRecording = true;
+    _notify();
     _activeSessionPaths = await _recordingStorageService.createSessionPaths();
 
-    await _applyCurrentSettings();
-    if (_motionDataEnabled) {
-      await _imuLoggingService.start(
-        paths: _activeSessionPaths!,
-        samplingRateHz: _sampleRateHz,
-        orientation: defaultImuOrientation,
-      );
-    }
-
     try {
+      await _applyCurrentSettings();
+      if (_motionDataEnabled) {
+        await _imuLoggingService.start(
+          paths: _activeSessionPaths!,
+          samplingRateHz: _sampleRateHz,
+          orientation: defaultImuOrientation,
+        );
+      }
       await controller.prepareForVideoRecording();
       await controller.startVideoRecording();
       _isRecording = true;
@@ -370,6 +479,9 @@ class CameraViewModel extends ChangeNotifier {
       }
       _activeSessionPaths = null;
       _errorMessage = error.toString();
+      _notify();
+    } finally {
+      _isStartingRecording = false;
       _notify();
     }
   }
@@ -504,7 +616,27 @@ class CameraViewModel extends ChangeNotifier {
   }
 
   int _pickDefaultShutter(int fps) {
-    return (1000000 / fps).round();
+    final targetReciprocal = fps * 2;
+    final reciprocal = commonShutterReciprocals.reduce((best, candidate) {
+      final bestDistance = (best - targetReciprocal).abs();
+      final candidateDistance = (candidate - targetReciprocal).abs();
+      return candidateDistance < bestDistance ? candidate : best;
+    });
+    return (1000000 / reciprocal).round();
+  }
+
+  int _pickDefaultIso(CameraCapabilities capabilities) {
+    final supported = availableIsoValuesFor(capabilities);
+    if (supported.contains(100)) {
+      return 100;
+    }
+    if (supported.contains(50)) {
+      return 50;
+    }
+    if (supported.isNotEmpty) {
+      return supported.first;
+    }
+    return capabilities.minIso.round();
   }
 
   int _pickDefaultSampleRate(List<int> sampleRates) {
@@ -531,9 +663,10 @@ class CameraViewModel extends ChangeNotifier {
   }
 
   String formatDuration(Duration duration) {
+    final hours = duration.inHours.toString().padLeft(2, '0');
     final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
+    return '$hours:$minutes:$seconds';
   }
 
   String formatShutter(int micros) {
@@ -552,6 +685,41 @@ class CameraViewModel extends ChangeNotifier {
       _ => format.label,
     };
     return '$resolutionLabel$_selectedFps';
+  }
+
+  List<int> availableIsoValuesFor(CameraCapabilities capabilities) {
+    return commonIsoValues
+        .where(
+          (value) =>
+              value >= capabilities.minIso.round() &&
+              value <= capabilities.maxIso.round(),
+        )
+        .toList();
+  }
+
+  List<int> get availableIsoValues {
+    final capabilities = _capabilities;
+    if (capabilities == null) {
+      return const <int>[50, 100];
+    }
+    return availableIsoValuesFor(capabilities);
+  }
+
+  List<int> get availableShutterMicros {
+    final capabilities = _capabilities;
+    if (capabilities == null) {
+      return commonShutterReciprocals
+          .map((value) => (1000000 / value).round())
+          .toList();
+    }
+    return commonShutterReciprocals
+        .map((value) => (1000000 / value).round())
+        .where(
+          (value) =>
+              value >= capabilities.minShutterMicros &&
+              value <= capabilities.maxShutterMicros,
+        )
+        .toList();
   }
 
   List<int> get availableSampleRates =>
@@ -615,6 +783,7 @@ class CameraViewModel extends ChangeNotifier {
     _disposed = true;
     _nativeApplyDebounce?.cancel();
     _recordingTimer?.cancel();
+    _focusReticleTimer?.cancel();
     unawaited(_imuLoggingService.stop());
     final controller = _controller;
     if (controller != null) {

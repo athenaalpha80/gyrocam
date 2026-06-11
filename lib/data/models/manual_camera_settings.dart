@@ -50,12 +50,16 @@ enum ExposureAssistMode { auto, custom }
 
 enum WhiteBalanceAssistMode { auto, locked }
 
-enum ManualControlPanel {
+enum QuickControlPanel {
+  none,
   resolution,
-  fps,
-  shutter,
-  iso,
+  frameRate,
+  exposure,
   whiteBalance,
   focus,
-  sampleRate,
+}
+
+enum ExposureControlMode {
+  iso,
+  shutter,
 }

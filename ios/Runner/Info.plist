@@ -75,5 +75,9 @@
 
 		<key>NSMotionUsageDescription</key>
 		<string>This app records gyro and accelerometer motion data for Gyroflow sync.</string>
+		<key>UIFileSharingEnabled</key>
+		<true />
+		<key>LSSupportsOpeningDocumentsInPlace</key>
+		<true />
 	</dict>
 </plist>

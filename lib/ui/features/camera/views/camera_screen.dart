@@ -27,6 +27,13 @@ class CameraScreen extends StatelessWidget {
             children: <Widget>[
               _PreviewSurface(viewModel: viewModel),
               const Positioned.fill(child: _PreviewScrim()),
+              if (viewModel.isQuickControlOpen)
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: viewModel.closeQuickControl,
+                  ),
+                ),
               SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
@@ -176,7 +183,7 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final timerText = viewModel.isRecording
         ? viewModel.formatDuration(viewModel.recordingDuration)
-        : '00:00';
+        : '00:00:00';
 
     return SizedBox(
       height: 36,
@@ -193,19 +200,25 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              padding: EdgeInsets.symmetric(
+                horizontal: viewModel.isRecording ? 12 : 0,
+                vertical: viewModel.isRecording ? 4 : 0,
+              ),
               decoration: BoxDecoration(
-                color: const Color(0x22101010),
-                borderRadius: BorderRadius.circular(14),
+                color: viewModel.isRecording
+                    ? const Color(0xFFFF3B30)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 timerText,
-                style: const TextStyle(
+                style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                  letterSpacing: 0.3,
+                  fontSize: viewModel.isRecording ? 22 : 20,
+                  letterSpacing: 0.5,
                 ),
               ),
             ),
@@ -262,24 +275,14 @@ class _BottomChrome extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: const Color(0x22101010),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Text(
-            viewModel.compactFormatLabel,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.3,
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
+        _QuickControlPanelHost(viewModel: viewModel),
+        const SizedBox(height: 12),
+        _QuickControlStrip(viewModel: viewModel),
+        const SizedBox(height: 14),
         GestureDetector(
-          onTap: viewModel.isRecording
+          onTap: viewModel.isStartingRecording
+              ? null
+              : viewModel.isRecording
               ? viewModel.stopRecording
               : viewModel.startRecording,
           child: Container(
@@ -290,17 +293,28 @@ class _BottomChrome extends StatelessWidget {
               border: Border.all(color: Colors.white, width: 5),
             ),
             child: Center(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                width: viewModel.isRecording ? 24 : 52,
-                height: viewModel.isRecording ? 24 : 52,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF3B30),
-                  borderRadius: BorderRadius.circular(
-                    viewModel.isRecording ? 8 : 26,
-                  ),
-                ),
-              ),
+              child: viewModel.isStartingRecording
+                  ? const SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.6,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFFFF3B30),
+                        ),
+                      ),
+                    )
+                  : AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      width: viewModel.isRecording ? 24 : 52,
+                      height: viewModel.isRecording ? 24 : 52,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF3B30),
+                        borderRadius: BorderRadius.circular(
+                          viewModel.isRecording ? 8 : 26,
+                        ),
+                      ),
+                    ),
             ),
           ),
         ),
@@ -309,85 +323,570 @@ class _BottomChrome extends StatelessWidget {
   }
 }
 
-class _LabeledSlider extends StatelessWidget {
-  const _LabeledSlider({
-    required this.title,
-    required this.valueLabel,
-    required this.min,
-    required this.max,
-    required this.value,
-    required this.onChanged,
+class _QuickControlStrip extends StatelessWidget {
+  const _QuickControlStrip({
+    required this.viewModel,
   });
 
-  final String title;
-  final String valueLabel;
-  final double min;
-  final double max;
-  final double value;
-  final ValueChanged<double>? onChanged;
+  final CameraViewModel viewModel;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: <Widget>[
-        Row(
+        Expanded(
+          child: _QuickControlButton(
+            label: 'RES',
+            value: _resolutionSummary(viewModel),
+            selected:
+                viewModel.activeQuickControl == QuickControlPanel.resolution,
+            onTap: () =>
+                viewModel.toggleQuickControl(QuickControlPanel.resolution),
+          ),
+        ),
+        Expanded(
+          child: _QuickControlButton(
+            label: 'FR',
+            value: '${viewModel.selectedFps}',
+            selected:
+                viewModel.activeQuickControl == QuickControlPanel.frameRate,
+            onTap: () =>
+                viewModel.toggleQuickControl(QuickControlPanel.frameRate),
+          ),
+        ),
+        Expanded(
+          child: _QuickControlButton(
+            label: 'EXP',
+            value: _exposureSummary(viewModel),
+            selected:
+                viewModel.activeQuickControl == QuickControlPanel.exposure,
+            onTap: () =>
+                viewModel.toggleQuickControl(QuickControlPanel.exposure),
+          ),
+        ),
+        Expanded(
+          child: _QuickControlButton(
+            label: 'FOCUS',
+            value: viewModel.focusMode == FocusAssistMode.auto
+                ? 'AUTO'
+                : viewModel.manualFocus.toStringAsFixed(2),
+            selected: viewModel.activeQuickControl == QuickControlPanel.focus,
+            onTap: () => viewModel.toggleQuickControl(QuickControlPanel.focus),
+          ),
+        ),
+        Expanded(
+          child: _QuickControlButton(
+            label: 'WB',
+            value: viewModel.whiteBalanceMode == WhiteBalanceAssistMode.auto
+                ? 'AUTO'
+                : '${viewModel.whiteBalanceKelvin}K',
+            selected:
+                viewModel.activeQuickControl == QuickControlPanel.whiteBalance,
+            onTap: () =>
+                viewModel.toggleQuickControl(QuickControlPanel.whiteBalance),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _resolutionSummary(CameraViewModel viewModel) {
+    final format = viewModel.selectedFormat;
+    if (format == null) {
+      return '--';
+    }
+    return switch ((format.width, format.height)) {
+      (3840, 2160) => '4K',
+      (1920, 1080) => '1080p',
+      _ => format.label,
+    };
+  }
+
+  String _exposureSummary(CameraViewModel viewModel) {
+    if (viewModel.exposureMode == ExposureAssistMode.auto) {
+      return 'AUTO';
+    }
+    return viewModel.iso.round().toString();
+  }
+}
+
+class _QuickControlButton extends StatelessWidget {
+  const _QuickControlButton({
+    required this.label,
+    required this.value,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 180),
+          style: TextStyle(
+            color: selected ? const Color(0xFFFFCC33) : Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const Spacer(),
             Text(
-              valueLabel,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              label,
+              style: TextStyle(
+                color: selected ? const Color(0xFFFFCC33) : Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(height: 3),
+            DefaultTextStyle(
+              style: TextStyle(
+                color: selected ? const Color(0xFFFFCC33) : Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+              child: Text(
+                value,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(height: 5),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: selected ? 24 : 0,
+              height: 2,
+              decoration: BoxDecoration(
                 color: const Color(0xFFFFCC33),
+                borderRadius: BorderRadius.circular(999),
               ),
             ),
           ],
         ),
-        Slider(
-          min: min,
-          max: max,
-          value: value.clamp(min, max),
-          onChanged: onChanged,
+      ),
+      ),
+    );
+  }
+}
+
+class _QuickControlPanelHost extends StatelessWidget {
+  const _QuickControlPanelHost({
+    required this.viewModel,
+  });
+
+  final CameraViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      reverseDuration: const Duration(milliseconds: 160),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SizeTransition(
+            sizeFactor: animation,
+            alignment: Alignment.bottomCenter,
+            child: child,
+          ),
+        );
+      },
+      child: switch (viewModel.activeQuickControl) {
+        QuickControlPanel.none => const SizedBox.shrink(),
+        QuickControlPanel.resolution => _QuickControlCard(
+          key: const ValueKey<String>('resolution'),
+          child: _ResolutionQuickControl(viewModel: viewModel),
+        ),
+        QuickControlPanel.frameRate => _QuickControlCard(
+          key: const ValueKey<String>('frame-rate'),
+          child: _FrameRateQuickControl(viewModel: viewModel),
+        ),
+        QuickControlPanel.exposure => _QuickControlCard(
+          key: const ValueKey<String>('exposure'),
+          child: _ExposureQuickControl(viewModel: viewModel),
+        ),
+        QuickControlPanel.focus => _QuickControlCard(
+          key: const ValueKey<String>('focus'),
+          child: _FocusQuickControl(viewModel: viewModel),
+        ),
+        QuickControlPanel.whiteBalance => _QuickControlCard(
+          key: const ValueKey<String>('wb'),
+          child: _WhiteBalanceQuickControl(viewModel: viewModel),
+        ),
+      },
+    );
+  }
+}
+
+class _ResolutionQuickControl extends StatelessWidget {
+  const _ResolutionQuickControl({
+    required this.viewModel,
+  });
+
+  final CameraViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final formats = viewModel.capabilities?.formats ?? const <CameraFormatOption>[];
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: formats.map((format) {
+        final selected = format == viewModel.selectedFormat;
+        final label = switch ((format.width, format.height)) {
+          (3840, 2160) => '4K',
+          (1920, 1080) => '1080p',
+          _ => format.label,
+        };
+        return _OptionPill(
+          label: label,
+          selected: selected,
+          onTap: () => viewModel.selectFormat(format),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _FrameRateQuickControl extends StatelessWidget {
+  const _FrameRateQuickControl({
+    required this.viewModel,
+  });
+
+  final CameraViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final fpsOptions = viewModel.selectedFormat?.fpsOptions ?? const <int>[];
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: fpsOptions.map((fps) {
+        return _OptionPill(
+          label: '$fps fps',
+          selected: fps == viewModel.selectedFps,
+          onTap: () => viewModel.selectFps(fps),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _OptionPill extends StatelessWidget {
+  const _OptionPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFFFCC33) : const Color(0x22101010),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.black : Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickControlCard extends StatelessWidget {
+  const _QuickControlCard({
+    super.key,
+    required this.child,
+  });
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {},
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _ExposureQuickControl extends StatelessWidget {
+  const _ExposureQuickControl({
+    required this.viewModel,
+  });
+
+  final CameraViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final isoValues = viewModel.availableIsoValues;
+    final shutterValues = viewModel.availableShutterMicros;
+    if (isoValues.isEmpty || shutterValues.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final isIso = viewModel.activeExposureControl == ExposureControlMode.iso;
+    final currentIsoIndex = isoValues.indexOf(viewModel.iso.round()).clamp(
+      0,
+      isoValues.length - 1,
+    );
+    final currentShutterIndex = shutterValues
+        .indexOf(viewModel.shutterMicros)
+        .clamp(0, shutterValues.length - 1);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: <Widget>[
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            _MiniModeButton(
+              label: 'ISO',
+              selected: isIso,
+              onTap: () =>
+                  viewModel.selectExposureControlMode(ExposureControlMode.iso),
+            ),
+            const SizedBox(width: 8),
+            _MiniModeButton(
+              label: 'SHT',
+              selected: !isIso,
+              onTap: () => viewModel.selectExposureControlMode(
+                ExposureControlMode.shutter,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _AutoRulerRow(
+          valueLabel: isIso
+              ? viewModel.iso.round().toString()
+              : viewModel.formatShutter(viewModel.shutterMicros),
+          autoSelected: viewModel.exposureMode == ExposureAssistMode.auto,
+          value: isIso
+              ? currentIsoIndex.toDouble()
+              : currentShutterIndex.toDouble(),
+          min: 0,
+          max: isIso
+              ? (isoValues.length - 1).toDouble()
+              : (shutterValues.length - 1).toDouble(),
+          divisions: isIso ? isoValues.length - 1 : shutterValues.length - 1,
+          onAutoTap: () => viewModel.setExposureMode(ExposureAssistMode.auto),
+          onChanged: (value) {
+            final index = value.round();
+            if (isIso) {
+              viewModel.setIso(isoValues[index].toDouble());
+            } else {
+              viewModel.setShutterMicros(shutterValues[index].toDouble());
+            }
+          },
         ),
       ],
     );
   }
 }
 
-class _ModeSegment extends StatelessWidget {
-  const _ModeSegment({
-    required this.labels,
-    required this.index,
-    required this.onChanged,
+class _FocusQuickControl extends StatelessWidget {
+  const _FocusQuickControl({
+    required this.viewModel,
   });
 
-  final List<String> labels;
-  final int index;
-  final ValueChanged<int> onChanged;
+  final CameraViewModel viewModel;
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoSlidingSegmentedControl<int>(
-      groupValue: index,
-      backgroundColor: const Color(0xFF1B1B1B),
-      thumbColor: const Color(0xFFFFCC33),
-      children: <int, Widget>{
-        for (var i = 0; i < labels.length; i++)
-          i: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+    return _AutoRulerRow(
+      valueLabel: viewModel.manualFocus.toStringAsFixed(2),
+      autoSelected: viewModel.focusMode == FocusAssistMode.auto,
+      value: viewModel.manualFocus,
+      min: 0,
+      max: 1,
+      divisions: 20,
+      onAutoTap: () => viewModel.setFocusMode(FocusAssistMode.auto),
+      onChanged: viewModel.setManualFocus,
+    );
+  }
+}
+
+class _WhiteBalanceQuickControl extends StatelessWidget {
+  const _WhiteBalanceQuickControl({
+    required this.viewModel,
+  });
+
+  final CameraViewModel viewModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final options = CameraViewModel.whiteBalanceOptions;
+    final currentIndex = options.indexOf(viewModel.whiteBalanceKelvin).clamp(
+      0,
+      options.length - 1,
+    );
+
+    return _AutoRulerRow(
+      valueLabel: '${viewModel.whiteBalanceKelvin}K',
+      autoSelected: viewModel.whiteBalanceMode == WhiteBalanceAssistMode.auto,
+      value: currentIndex.toDouble(),
+      min: 0,
+      max: (options.length - 1).toDouble(),
+      divisions: options.length - 1,
+      onAutoTap: () =>
+          viewModel.setWhiteBalanceMode(WhiteBalanceAssistMode.auto),
+      onChanged: (value) {
+        final index = value.round().clamp(0, options.length - 1);
+        viewModel.setWhiteBalanceKelvin(options[index]);
+      },
+    );
+  }
+}
+
+class _MiniModeButton extends StatelessWidget {
+  const _MiniModeButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFFFCC33) : const Color(0x22101010),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.black : Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AutoRulerRow extends StatelessWidget {
+  const _AutoRulerRow({
+    required this.valueLabel,
+    required this.autoSelected,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.divisions,
+    required this.onAutoTap,
+    required this.onChanged,
+  });
+
+  final String valueLabel;
+  final bool autoSelected;
+  final double value;
+  final double min;
+  final double max;
+  final int divisions;
+  final VoidCallback onAutoTap;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        GestureDetector(
+          onTap: onAutoTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            width: 54,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: autoSelected
+                  ? const Color(0xFFFFCC33)
+                  : const Color(0x22101010),
+              borderRadius: BorderRadius.circular(12),
+            ),
             child: Text(
-              labels[i],
+              'AUTO',
               style: TextStyle(
-                color: index == i ? Colors.black : Colors.white,
-                fontWeight: FontWeight.w700,
+                color: autoSelected ? Colors.black : Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
               ),
             ),
           ),
-      },
-      onValueChanged: (value) {
-        if (value != null) {
-          onChanged(value);
-        }
-      },
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 2,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+              tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 1.2),
+              activeTickMarkColor: const Color(0xFFFFCC33),
+              inactiveTickMarkColor: Colors.white24,
+            ),
+            child: Slider(
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              divisions: divisions > 0 ? divisions : null,
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+        const SizedBox(width: 0),
+        SizedBox(
+          width: 52,
+          child: Text(
+            valueLabel,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -437,9 +936,6 @@ class _SettingsSheetState extends State<_SettingsSheet> {
       listenable: widget.viewModel,
       builder: (context, _) {
         final viewModel = widget.viewModel;
-        final formats =
-            viewModel.capabilities?.formats ?? const <CameraFormatOption>[];
-        final fpsOptions = viewModel.selectedFormat?.fpsOptions ?? const <int>[];
 
         return Scaffold(
           backgroundColor: const Color(0xFF080808),
@@ -490,42 +986,6 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                     ),
                     const SizedBox(height: 20),
                     _SettingsSection(
-                      title: 'Resolution',
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: formats.map((format) {
-                          final selected = format == viewModel.selectedFormat;
-                          final label = switch ((format.width, format.height)) {
-                            (3840, 2160) => '4K',
-                            (1920, 1080) => '1080p',
-                            _ => format.label,
-                          };
-                          return FilterChip(
-                            label: Text(label),
-                            selected: selected,
-                            onSelected: (_) => viewModel.selectFormat(format),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _SettingsSection(
-                      title: 'Frame Rate',
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: fpsOptions.map((fps) {
-                          return FilterChip(
-                            label: Text('$fps fps'),
-                            selected: fps == viewModel.selectedFps,
-                            onSelected: (_) => viewModel.selectFps(fps),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _SettingsSection(
                       title: 'Stabilization',
                       child: SwitchListTile.adaptive(
                         contentPadding: EdgeInsets.zero,
@@ -539,124 +999,6 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                         onChanged: viewModel.motionDataEnabled
                             ? null
                             : viewModel.setStabilizationEnabled,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _SettingsSection(
-                      title: 'Exposure',
-                      child: Column(
-                        children: <Widget>[
-                          _ModeSegment(
-                            labels: const <String>['Auto', 'Manual'],
-                            index:
-                                viewModel.exposureMode == ExposureAssistMode.auto
-                                ? 0
-                                : 1,
-                            onChanged: (index) => viewModel.setExposureMode(
-                              index == 0
-                                  ? ExposureAssistMode.auto
-                                  : ExposureAssistMode.custom,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          if (viewModel.capabilities case final caps?)
-                            _LabeledSlider(
-                              title: 'ISO',
-                              valueLabel: viewModel.iso.round().toString(),
-                              min: caps.minIso,
-                              max: caps.maxIso,
-                              value: viewModel.iso,
-                              onChanged:
-                                  viewModel.exposureMode ==
-                                      ExposureAssistMode.auto
-                                  ? null
-                                  : viewModel.setIso,
-                            ),
-                          if (viewModel.capabilities case final caps?)
-                            _LabeledSlider(
-                              title: 'Shutter',
-                              valueLabel: viewModel.formatShutter(
-                                viewModel.shutterMicros,
-                              ),
-                              min: caps.minShutterMicros.toDouble(),
-                              max: caps.maxShutterMicros.toDouble(),
-                              value: viewModel.shutterMicros.toDouble(),
-                              onChanged: viewModel.setShutterMicros,
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _SettingsSection(
-                      title: 'Focus',
-                      child: Column(
-                        children: <Widget>[
-                          _ModeSegment(
-                            labels: const <String>['Auto', 'Manual'],
-                            index:
-                                viewModel.focusMode == FocusAssistMode.auto
-                                ? 0
-                                : 1,
-                            onChanged: (index) => viewModel.setFocusMode(
-                              index == 0
-                                  ? FocusAssistMode.auto
-                                  : FocusAssistMode.locked,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _LabeledSlider(
-                            title: 'Focus',
-                            valueLabel: viewModel.manualFocus.toStringAsFixed(2),
-                            min: 0,
-                            max: 1,
-                            value: viewModel.manualFocus,
-                            onChanged:
-                                viewModel.focusMode == FocusAssistMode.auto
-                                ? null
-                                : viewModel.setManualFocus,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _SettingsSection(
-                      title: 'White Balance',
-                      child: Column(
-                        children: <Widget>[
-                          _ModeSegment(
-                            labels: const <String>['Auto', 'Locked'],
-                            index:
-                                viewModel.whiteBalanceMode ==
-                                    WhiteBalanceAssistMode.auto
-                                ? 0
-                                : 1,
-                            onChanged: (index) => viewModel.setWhiteBalanceMode(
-                              index == 0
-                                  ? WhiteBalanceAssistMode.auto
-                                  : WhiteBalanceAssistMode.locked,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: CameraViewModel.whiteBalanceOptions.map((
-                              value,
-                            ) {
-                              return FilterChip(
-                                label: Text('${value}K'),
-                                selected: value == viewModel.whiteBalanceKelvin,
-                                onSelected:
-                                    viewModel.whiteBalanceMode ==
-                                        WhiteBalanceAssistMode.auto
-                                    ? null
-                                    : (_) => viewModel.setWhiteBalanceKelvin(
-                                      value,
-                                    ),
-                              );
-                            }).toList(),
-                          ),
-                        ],
                       ),
                     ),
                     const SizedBox(height: 18),
