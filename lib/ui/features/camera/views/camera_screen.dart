@@ -1,7 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../../data/models/camera_capabilities.dart';
 import '../../../../data/models/manual_camera_settings.dart';
@@ -74,7 +73,7 @@ class _PreviewSurface extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final previewAspectRatio = _effectivePreviewAspectRatio(controller);
+        final previewAspectRatio = 1 / controller.value.aspectRatio;
         final viewportAspectRatio =
             constraints.maxWidth / constraints.maxHeight;
         final scale = previewAspectRatio > viewportAspectRatio
@@ -92,13 +91,9 @@ class _PreviewSurface extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[
-                AnimatedRotation(
-                  turns: viewModel.previewRotationTurns,
-                  duration: Duration(milliseconds: 5),
-                  child: Transform.scale(
-                    scale: scale,
-                    child: Center(child: CameraPreview(controller)),
-                  ),
+                Transform.scale(
+                  scale: scale,
+                  child: Center(child: CameraPreview(controller)),
                 ),
                 const Positioned.fill(child: _RuleOfThirdsOverlay()),
                 if (viewModel.focusReticle case final point?)
@@ -119,17 +114,6 @@ class _PreviewSurface extends StatelessWidget {
         );
       },
     );
-  }
-
-  double _effectivePreviewAspectRatio(CameraController controller) {
-    final double turns = viewModel.previewRotationTurns;
-    final isLandscape = turns == 0.25 || turns == 0.75;
-
-    if (isLandscape) {
-      return controller.value.aspectRatio;
-    }
-
-    return 1 / controller.value.aspectRatio;
   }
 }
 

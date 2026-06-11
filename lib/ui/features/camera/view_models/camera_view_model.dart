@@ -124,8 +124,6 @@ class CameraViewModel extends ChangeNotifier {
 
   double get orientationTurns => _orientationTurns;
 
-  double _currentLockedTurns = 0;
-
   RecordingSessionPaths? _activeSessionPaths;
   Timer? _recordingTimer;
   Timer? _nativeApplyDebounce;
@@ -135,21 +133,6 @@ class CameraViewModel extends ChangeNotifier {
   double _orientationTurns = 0;
   double _rawTiltAngle = 0;
   double get rawTiltAngle => _rawTiltAngle;
-  double get tiltDegrees {
-    if (_rawTiltAngle > pi * 0.75 || _rawTiltAngle < -pi * 0.75) return 0;
-    if (_rawTiltAngle > pi * 0.25) return 90;
-    if (_rawTiltAngle < -pi * 0.25) return 270;
-    return 0;
-  }
-
-  double get previewRotationTurns {
-    // do nothing we don't want realtime
-    if (!_isOrientationLocked) {
-      return 0;
-    }
-
-    return _currentLockedTurns;
-  }
 
   StreamSubscription<AccelerometerEvent>? _tiltSubscription;
 
@@ -509,19 +492,7 @@ class CameraViewModel extends ChangeNotifier {
         );
       }
 
-      DeviceOrientation dor = _orientationForTilt(tiltDegrees);
-
-      await controller.lockCaptureOrientation(dor);
-      _isOrientationLocked = true;
-
-      // while not recording we set the current turns
-      // because once it record, we will lock the turns,
-      // then after recording we can unlock it again
-      if (dor == DeviceOrientation.landscapeLeft) {
-        _currentLockedTurns = 0.25;
-      } else if (dor == DeviceOrientation.landscapeRight) {
-        _currentLockedTurns = 0.75;
-      }
+      await controller.lockCaptureOrientation();
 
       await controller.startVideoRecording();
       _isRecording = true;
@@ -555,8 +526,6 @@ class CameraViewModel extends ChangeNotifier {
     try {
       final file = await controller.stopVideoRecording();
       await controller.unlockCaptureOrientation();
-      _isOrientationLocked = false;
-      _currentLockedTurns = 0;
       if (_motionDataEnabled) {
         await _imuLoggingService.stop();
       }
@@ -689,14 +658,6 @@ class CameraViewModel extends ChangeNotifier {
     if (angle > pi * 0.25) return 0.25;
     if (angle < -pi * 0.25) return -0.25;
     return 0;
-  }
-
-  DeviceOrientation _orientationForTilt(double degrees) {
-    return switch (degrees) {
-      90 => DeviceOrientation.landscapeLeft,
-      270 => DeviceOrientation.landscapeRight,
-      _ => DeviceOrientation.portraitUp,
-    };
   }
 
   CameraFormatOption _pickDefaultFormat(List<CameraFormatOption> formats) {
