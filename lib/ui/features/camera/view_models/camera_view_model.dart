@@ -130,6 +130,9 @@ class CameraViewModel extends ChangeNotifier {
   double _orientationTurns = 0;
   StreamSubscription<AccelerometerEvent>? _tiltSubscription;
 
+  VideoCodec _videoCodec = VideoCodec.h265;
+  VideoCodec get videoCodec => _videoCodec;
+
   static const String defaultImuOrientation = 'XYZ';
   static const List<int> commonIsoValues = <int>[
     25,
@@ -280,6 +283,13 @@ class CameraViewModel extends ChangeNotifier {
       return;
     }
     _sampleRateHz = hz;
+    _notify();
+  }
+
+  Future<void> setVideoCodec(VideoCodec codec) async {
+    if (_videoCodec == codec) return;
+    _videoCodec = codec;
+    _scheduleNativeApply();
     _notify();
   }
 
@@ -585,6 +595,7 @@ class CameraViewModel extends ChangeNotifier {
       shutterMicros: _shutterMicros,
       whiteBalanceMode: _whiteBalanceMode,
       whiteBalanceKelvin: _whiteBalanceKelvin,
+      videoCodec: _videoCodec,
     );
 
     await _cameraRepository.applyCaptureFormat(settings);

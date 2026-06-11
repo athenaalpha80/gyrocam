@@ -10,6 +10,7 @@ class ManualCameraSettings {
     required this.shutterMicros,
     required this.whiteBalanceMode,
     required this.whiteBalanceKelvin,
+    this.videoCodec = VideoCodec.h265,
   });
 
   final int width;
@@ -22,6 +23,7 @@ class ManualCameraSettings {
   final int shutterMicros;
   final WhiteBalanceAssistMode whiteBalanceMode;
   final int whiteBalanceKelvin;
+  final VideoCodec videoCodec;
 
   Map<String, Object> toManualControlMap() {
     return <String, Object>{
@@ -40,6 +42,7 @@ class ManualCameraSettings {
       'width': width,
       'height': height,
       'fps': fps,
+      'videoCodec': videoCodec.name,
     };
   }
 }
@@ -49,6 +52,8 @@ enum FocusAssistMode { auto, locked }
 enum ExposureAssistMode { auto, custom }
 
 enum WhiteBalanceAssistMode { auto, locked }
+
+enum VideoCodec { h265, h264 }
 
 enum QuickControlPanel {
   none,

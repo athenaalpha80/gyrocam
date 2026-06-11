@@ -1024,6 +1024,22 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                     ),
                     const SizedBox(height: 18),
                     _SettingsSection(
+                      title: 'Video Codec',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: <VideoCodec>[VideoCodec.h265, VideoCodec.h264].map((codec) {
+                          final selected = codec == viewModel.videoCodec;
+                          return FilterChip(
+                            label: Text(codec == VideoCodec.h265 ? 'HEVC (H.265)' : 'H.264'),
+                            selected: selected,
+                            onSelected: (_) => viewModel.setVideoCodec(codec),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _SettingsSection(
                       title: 'Motion Logging',
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
