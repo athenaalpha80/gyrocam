@@ -1,0 +1,17 @@
+{
+  "project": "gyrocam",
+  "platform": "ios",
+  "github": {
+    "owner": "athenaalpha80",
+    "repo": "gyrocam"
+  },
+  "ios": {
+    "path": "ios"
+  },
+  "flutter": {
+    "version": "3.44.1",
+    "watch": {}
+  },
+  "reactNative": {},
+  "mobai": {}
+}
