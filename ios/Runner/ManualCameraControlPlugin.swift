@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreMotion
 import Flutter
 import UIKit
 
@@ -16,6 +17,8 @@ final class ManualCameraControlPlugin: NSObject, FlutterPlugin {
     switch call.method {
     case "getRearCameraCapabilities":
       result(buildCapabilities())
+    case "getMotionDataCapabilities":
+      buildMotionDataCapabilities(result: result)
     case "applyCaptureFormat":
       guard let arguments = call.arguments as? [String: Any] else {
         result(
@@ -130,6 +133,31 @@ final class ManualCameraControlPlugin: NSObject, FlutterPlugin {
     } catch {
       return nil
     }
+  }
+
+  private func buildMotionDataCapabilities(result: @escaping FlutterResult) {
+    let motionManager = CMMotionManager()
+    let hasRawMotion = motionManager.isGyroAvailable && motionManager.isAccelerometerAvailable
+
+    guard hasRawMotion else {
+      result([
+        "isSupported": false,
+        "sampleRateOptionsHz": [],
+        "minSampleRateHz": 0,
+        "maxSampleRateHz": 0
+      ])
+      return
+    }
+
+    let candidateRates = [50, 100, 120, 200, 240]
+    probeMotionRates(
+      manager: motionManager,
+      candidates: candidateRates,
+      index: 0,
+      supported: [],
+      fallback: [50, 100],
+      result: result
+    )
   }
 
   private func applyCaptureFormat(arguments: [String: Any], result: @escaping FlutterResult) {
@@ -250,5 +278,104 @@ final class ManualCameraControlPlugin: NSObject, FlutterPlugin {
     clamped.greenGain = min(max(1.0, gains.greenGain), maxGain)
     clamped.blueGain = min(max(1.0, gains.blueGain), maxGain)
     return clamped
+  }
+
+  private func probeMotionRates(
+    manager: CMMotionManager,
+    candidates: [Int],
+    index: Int,
+    supported: [Int],
+    fallback: [Int],
+    result: @escaping FlutterResult
+  ) {
+    guard index < candidates.count else {
+      let sorted = supported.sorted()
+      let finalRates = sorted.isEmpty ? fallback : sorted
+      result([
+        "isSupported": true,
+        "sampleRateOptionsHz": finalRates,
+        "minSampleRateHz": finalRates.first ?? 0,
+        "maxSampleRateHz": finalRates.last ?? 0
+      ])
+      return
+    }
+
+    let candidate = candidates[index]
+    measureSupportedRate(manager: manager, requestedHz: candidate) { isSupported in
+      var nextSupported = supported
+      if isSupported {
+        nextSupported.append(candidate)
+      }
+      self.probeMotionRates(
+        manager: manager,
+        candidates: candidates,
+        index: index + 1,
+        supported: nextSupported,
+        fallback: fallback,
+        result: result
+      )
+    }
+  }
+
+  private func measureSupportedRate(
+    manager: CMMotionManager,
+    requestedHz: Int,
+    completion: @escaping (Bool) -> Void
+  ) {
+    let queue = OperationQueue()
+    queue.maxConcurrentOperationCount = 1
+    queue.qualityOfService = .userInitiated
+
+    let requestedInterval = 1.0 / Double(requestedHz)
+    manager.gyroUpdateInterval = requestedInterval
+    manager.accelerometerUpdateInterval = requestedInterval
+
+    var previousTimestamp: TimeInterval?
+    var intervals: [TimeInterval] = []
+    var finished = false
+
+    func complete(_ supported: Bool) {
+      guard !finished else {
+        return
+      }
+      finished = true
+      manager.stopGyroUpdates()
+      manager.stopAccelerometerUpdates()
+      DispatchQueue.main.async {
+        completion(supported)
+      }
+    }
+
+    let timeout = max(0.45, requestedInterval * 18)
+    DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+      guard !finished else {
+        return
+      }
+      let averageInterval = intervals.isEmpty
+        ? 0
+        : intervals.reduce(0, +) / Double(intervals.count)
+      let achievedHz = averageInterval > 0 ? 1.0 / averageInterval : 0
+      complete(achievedHz >= Double(requestedHz) * 0.85)
+    }
+
+    manager.startGyroUpdates(to: queue) { data, error in
+      guard error == nil, let data else {
+        complete(false)
+        return
+      }
+
+      if let previousTimestamp {
+        intervals.append(data.timestamp - previousTimestamp)
+      }
+      previousTimestamp = data.timestamp
+
+      guard intervals.count >= 12 else {
+        return
+      }
+
+      let averageInterval = intervals.reduce(0, +) / Double(intervals.count)
+      let achievedHz = averageInterval > 0 ? 1.0 / averageInterval : 0
+      complete(achievedHz >= Double(requestedHz) * 0.85)
+    }
   }
 }

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../data/models/camera_capabilities.dart';
 import '../../../../data/models/manual_camera_settings.dart';
+import '../../../../data/models/motion_data_capabilities.dart';
 import '../../../../data/models/recording_session_paths.dart';
 import '../../../../data/repositories/camera_repository.dart';
 import '../../../../data/services/imu_logging_service.dart';
@@ -34,6 +35,9 @@ class CameraViewModel extends ChangeNotifier {
   CameraCapabilities? _capabilities;
   CameraCapabilities? get capabilities => _capabilities;
 
+  MotionDataCapabilities? _motionDataCapabilities;
+  MotionDataCapabilities? get motionDataCapabilities => _motionDataCapabilities;
+
   CameraDescription? _rearCamera;
   CameraFormatOption? _selectedFormat;
   CameraFormatOption? get selectedFormat => _selectedFormat;
@@ -49,6 +53,12 @@ class CameraViewModel extends ChangeNotifier {
 
   bool _stabilizationEnabled = false;
   bool get stabilizationEnabled => _stabilizationEnabled;
+
+  bool _motionDataEnabled = true;
+  bool get motionDataEnabled => _motionDataEnabled;
+
+  bool _torchEnabled = false;
+  bool get torchEnabled => _torchEnabled;
 
   FocusAssistMode _focusMode = FocusAssistMode.auto;
   FocusAssistMode get focusMode => _focusMode;
@@ -83,9 +93,6 @@ class CameraViewModel extends ChangeNotifier {
   int _sampleRateHz = 100;
   int get sampleRateHz => _sampleRateHz;
 
-  String _imuOrientation = 'XYZ';
-  String get imuOrientation => _imuOrientation;
-
   ManualControlPanel _activePanel = ManualControlPanel.resolution;
   ManualControlPanel get activePanel => _activePanel;
 
@@ -109,7 +116,7 @@ class CameraViewModel extends ChangeNotifier {
   Timer? _nativeApplyDebounce;
   bool _disposed = false;
 
-  static const List<int> sampleRateOptions = <int>[50, 100, 200, 250, 500];
+  static const String defaultImuOrientation = 'XYZ';
   static const List<int> whiteBalanceOptions = <int>[
     2800,
     3200,
@@ -132,7 +139,15 @@ class CameraViewModel extends ChangeNotifier {
 
     try {
       _rearCamera = await _cameraRepository.getRearCameraDescription();
-      _capabilities = await _cameraRepository.getRearCameraCapabilities();
+      _motionDataCapabilities =
+          await _cameraRepository.getMotionDataCapabilities();
+      _motionDataEnabled = _motionDataCapabilities?.isSupported ?? false;
+      _sampleRateHz = _pickDefaultSampleRate(
+        _motionDataCapabilities?.sampleRateOptionsHz ?? const <int>[],
+      );
+      final rawCapabilities =
+          await _cameraRepository.getRearCameraCapabilities();
+      _capabilities = _filterCapabilities(rawCapabilities);
       if (_capabilities!.formats.isEmpty) {
         throw StateError('No rear video formats were exposed by AVFoundation.');
       }
@@ -166,7 +181,6 @@ class CameraViewModel extends ChangeNotifier {
       _shutterMicros = _pickDefaultShutter(_selectedFps);
     }
     await _buildController();
-    _notify();
   }
 
   Future<void> selectFps(int fps) async {
@@ -176,19 +190,13 @@ class CameraViewModel extends ChangeNotifier {
     _selectedFps = fps;
     _shutterMicros = _pickDefaultShutter(fps);
     await _buildController();
-    _notify();
   }
 
   Future<void> setSampleRate(int hz) async {
-    _sampleRateHz = hz;
-    _notify();
-  }
-
-  Future<void> setImuOrientation(String orientation) async {
-    if (orientation.isEmpty) {
+    if (!availableSampleRates.contains(hz)) {
       return;
     }
-    _imuOrientation = orientation;
+    _sampleRateHz = hz;
     _notify();
   }
 
@@ -261,6 +269,9 @@ class CameraViewModel extends ChangeNotifier {
   }
 
   Future<void> setStabilizationEnabled(bool enabled) async {
+    if (enabled) {
+      _motionDataEnabled = false;
+    }
     _stabilizationEnabled = enabled;
     final controller = _controller;
     if (controller != null) {
@@ -277,6 +288,28 @@ class CameraViewModel extends ChangeNotifier {
         await controller.setVideoStabilizationMode(mode);
       }
     }
+    _notify();
+  }
+
+  Future<void> setMotionDataEnabled(bool enabled) async {
+    if (!motionDataSupported) {
+      return;
+    }
+    if (enabled && _stabilizationEnabled) {
+      _stabilizationEnabled = false;
+      await _controller?.setVideoStabilizationMode(VideoStabilizationMode.off);
+    }
+    _motionDataEnabled = enabled;
+    _notify();
+  }
+
+  Future<void> setTorchEnabled(bool enabled) async {
+    final controller = _controller;
+    if (controller == null) {
+      return;
+    }
+    _torchEnabled = enabled;
+    await controller.setFlashMode(enabled ? FlashMode.torch : FlashMode.off);
     _notify();
   }
 
@@ -308,11 +341,13 @@ class CameraViewModel extends ChangeNotifier {
     _activeSessionPaths = await _recordingStorageService.createSessionPaths();
 
     await _applyCurrentSettings();
-    await _imuLoggingService.start(
-      paths: _activeSessionPaths!,
-      samplingRateHz: _sampleRateHz,
-      orientation: _imuOrientation,
-    );
+    if (_motionDataEnabled) {
+      await _imuLoggingService.start(
+        paths: _activeSessionPaths!,
+        samplingRateHz: _sampleRateHz,
+        orientation: defaultImuOrientation,
+      );
+    }
 
     try {
       await controller.prepareForVideoRecording();
@@ -326,7 +361,9 @@ class CameraViewModel extends ChangeNotifier {
       });
       _notify();
     } catch (error) {
-      await _imuLoggingService.stop();
+      if (_motionDataEnabled) {
+        await _imuLoggingService.stop();
+      }
       _activeSessionPaths = null;
       _errorMessage = error.toString();
       _notify();
@@ -342,13 +379,15 @@ class CameraViewModel extends ChangeNotifier {
 
     try {
       final file = await controller.stopVideoRecording();
-      await _imuLoggingService.stop();
+      if (_motionDataEnabled) {
+        await _imuLoggingService.stop();
+      }
       await _recordingStorageService.persistRecording(
         sourceFile: file,
         target: sessionPaths,
       );
       _lastSavedVideoPath = sessionPaths.videoPath;
-      _lastSavedGcsvPath = sessionPaths.gcsvPath;
+      _lastSavedGcsvPath = _motionDataEnabled ? sessionPaths.gcsvPath : null;
     } catch (error) {
       _errorMessage = error.toString();
     } finally {
@@ -368,24 +407,40 @@ class CameraViewModel extends ChangeNotifier {
       return;
     }
 
+    _nativeApplyDebounce?.cancel();
     final previous = _controller;
-    final controller = CameraController(
-      rearCamera,
-      _resolutionPresetFor(format),
-      enableAudio: true,
-      fps: _selectedFps,
-    );
+    _isInitializing = true;
+    _errorMessage = null;
+    _controller = null;
+    _notify();
 
-    await controller.initialize();
-    await controller.setVideoStabilizationMode(VideoStabilizationMode.off);
-    _minZoom = await controller.getMinZoomLevel();
-    _maxZoom = await controller.getMaxZoomLevel();
-    _zoom = _zoom.clamp(_minZoom, _maxZoom).toDouble();
-    await controller.setZoomLevel(_zoom);
-
-    _controller = controller;
     await previous?.dispose();
-    await _applyCurrentSettings();
+
+    try {
+      final controller = CameraController(
+        rearCamera,
+        _resolutionPresetFor(format),
+        enableAudio: true,
+      );
+
+      await controller.initialize();
+      await controller.setVideoStabilizationMode(VideoStabilizationMode.off);
+      await controller.setFlashMode(_torchEnabled ? FlashMode.torch : FlashMode.off);
+      _minZoom = await controller.getMinZoomLevel();
+      _maxZoom = await controller.getMaxZoomLevel();
+      _zoom = _zoom.clamp(_minZoom, _maxZoom).toDouble();
+      await controller.setZoomLevel(_zoom);
+
+      _controller = controller;
+      await _applyCurrentSettings();
+      await controller.pausePreview();
+      await controller.resumePreview();
+    } catch (error) {
+      _errorMessage = error.toString();
+    } finally {
+      _isInitializing = false;
+      _notify();
+    }
   }
 
   Future<void> _applyCurrentSettings() async {
@@ -431,24 +486,31 @@ class CameraViewModel extends ChangeNotifier {
 
   CameraFormatOption _pickDefaultFormat(List<CameraFormatOption> formats) {
     return formats.firstWhere(
-      (format) => format.fpsOptions.contains(24),
+      (format) => format.width == 3840 && format.height == 2160,
       orElse: () => formats.first,
     );
   }
 
   int _pickDefaultFps(CameraFormatOption format) {
     final fpsOptions = format.fpsOptions;
-    if (fpsOptions.contains(24)) {
-      return 24;
-    }
-    if (fpsOptions.contains(30)) {
-      return 30;
+    if (fpsOptions.contains(60)) {
+      return 60;
     }
     return fpsOptions.isEmpty ? 30 : fpsOptions.first;
   }
 
   int _pickDefaultShutter(int fps) {
     return (1000000 / fps).round();
+  }
+
+  int _pickDefaultSampleRate(List<int> sampleRates) {
+    if (sampleRates.contains(100)) {
+      return 100;
+    }
+    if (sampleRates.isNotEmpty) {
+      return sampleRates.last;
+    }
+    return 100;
   }
 
   ResolutionPreset _resolutionPresetFor(CameraFormatOption format) {
@@ -473,6 +535,69 @@ class CameraViewModel extends ChangeNotifier {
   String formatShutter(int micros) {
     final reciprocal = (1000000 / micros).round();
     return '1/$reciprocal';
+  }
+
+  String get compactFormatLabel {
+    final format = _selectedFormat;
+    if (format == null) {
+      return 'Rear Wide';
+    }
+    final resolutionLabel = switch ((format.width, format.height)) {
+      (3840, 2160) => '4K',
+      (1920, 1080) => '1080p',
+      _ => format.label,
+    };
+    return '$resolutionLabel$_selectedFps';
+  }
+
+  List<int> get availableSampleRates =>
+      _motionDataCapabilities?.sampleRateOptionsHz ?? const <int>[];
+
+  bool get motionDataSupported =>
+      _motionDataCapabilities?.isSupported == true &&
+      availableSampleRates.isNotEmpty;
+
+  String get motionDataRateRangeLabel {
+    final capabilities = _motionDataCapabilities;
+    if (capabilities == null || !motionDataSupported) {
+      return 'Motion data unavailable';
+    }
+    return '${capabilities.minSampleRateHz}-${capabilities.maxSampleRateHz} Hz';
+  }
+
+  CameraCapabilities _filterCapabilities(CameraCapabilities capabilities) {
+    const allowedResolutions = <String>{
+      '3840x2160',
+      '1920x1080',
+    };
+    const allowedFps = <int>{24, 30, 60};
+
+    final filteredFormats = capabilities.formats
+        .where((format) => allowedResolutions.contains('${format.width}x${format.height}'))
+        .map((format) {
+          final filteredFps = format.fpsOptions
+              .where(allowedFps.contains)
+              .toList()
+            ..sort();
+          return CameraFormatOption(
+            width: format.width,
+            height: format.height,
+            fpsOptions: filteredFps,
+          );
+        })
+        .where((format) => format.fpsOptions.isNotEmpty)
+        .toList()
+      ..sort(CameraFormatOption.compareByQuality);
+
+    return CameraCapabilities(
+      formats: filteredFormats,
+      minIso: capabilities.minIso,
+      maxIso: capabilities.maxIso,
+      minShutterMicros: capabilities.minShutterMicros,
+      maxShutterMicros: capabilities.maxShutterMicros,
+      minZoom: capabilities.minZoom,
+      maxZoom: capabilities.maxZoom,
+    );
   }
 
   void _notify() {

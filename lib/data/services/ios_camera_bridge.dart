@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 
 import '../models/camera_capabilities.dart';
 import '../models/manual_camera_settings.dart';
+import '../models/motion_data_capabilities.dart';
 
 class IosCameraBridge {
   const IosCameraBridge();
@@ -16,6 +17,16 @@ class IosCameraBridge {
       throw const CameraBridgeException('missing-capabilities');
     }
     return CameraCapabilities.fromMap(raw);
+  }
+
+  Future<MotionDataCapabilities> getMotionDataCapabilities() async {
+    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'getMotionDataCapabilities',
+    );
+    if (raw == null) {
+      throw const CameraBridgeException('missing-motion-capabilities');
+    }
+    return MotionDataCapabilities.fromMap(raw);
   }
 
   Future<void> applyCaptureFormat(ManualCameraSettings settings) async {

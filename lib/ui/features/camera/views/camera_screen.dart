@@ -1,6 +1,7 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../data/models/camera_capabilities.dart';
 import '../../../../data/models/manual_camera_settings.dart';
@@ -20,121 +21,28 @@ class CameraScreen extends StatelessWidget {
       listenable: viewModel,
       builder: (context, _) {
         return Scaffold(
-          body: SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isLandscape =
-                    constraints.maxWidth > constraints.maxHeight;
-                return DecoratedBox(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: <Color>[Color(0xFF151515), Color(0xFF040404)],
-                    ),
-                  ),
-                  child: isLandscape
-                      ? _buildLandscapeLayout(context)
-                      : _buildPortraitLayout(context),
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildPortraitLayout(BuildContext context) {
-    return Column(
-      children: <Widget>[
-        _TopBar(viewModel: viewModel),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: _PreviewSurface(viewModel: viewModel),
-          ),
-        ),
-        const SizedBox(height: 12),
-        _ManualPanel(viewModel: viewModel),
-        const SizedBox(height: 12),
-        _BottomChrome(viewModel: viewModel),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-
-  Widget _buildLandscapeLayout(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: Column(
+          backgroundColor: Colors.black,
+          body: Stack(
+            fit: StackFit.expand,
             children: <Widget>[
-              _TopBar(viewModel: viewModel),
-              Expanded(
+              _PreviewSurface(viewModel: viewModel),
+              const Positioned.fill(child: _PreviewScrim()),
+              SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.only(left: 12, bottom: 12),
-                  child: _PreviewSurface(viewModel: viewModel),
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: Column(
+                    children: <Widget>[
+                      _TopBar(viewModel: viewModel),
+                      const Spacer(),
+                      _BottomChrome(viewModel: viewModel),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
-        ),
-        SizedBox(
-          width: 320,
-          child: Column(
-            children: <Widget>[
-              Expanded(child: _ManualPanel(viewModel: viewModel)),
-              _BottomChrome(viewModel: viewModel),
-              const SizedBox(height: 12),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({
-    required this.viewModel,
-  });
-
-  final CameraViewModel viewModel;
-
-  @override
-  Widget build(BuildContext context) {
-    final format = viewModel.selectedFormat;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-      child: Row(
-        children: <Widget>[
-          _InfoPill(
-            label: format == null
-                ? 'Rear Wide'
-                : '${format.label} • ${viewModel.selectedFps} FPS',
-          ),
-          const SizedBox(width: 8),
-          _InfoPill(label: 'VIDEO', highlighted: true),
-          const Spacer(),
-          _TogglePill(
-            label: 'Stab',
-            enabled: viewModel.stabilizationEnabled,
-            onTap: () => viewModel.setStabilizationEnabled(
-              !viewModel.stabilizationEnabled,
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            style: IconButton.styleFrom(
-              backgroundColor: const Color(0x221A1A1A),
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => _showAdvancedSheet(context, viewModel),
-            icon: const Icon(CupertinoIcons.slider_horizontal_3, size: 22),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -164,95 +72,92 @@ class _PreviewSurface extends StatelessWidget {
       );
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(30),
-      child: Container(
-        color: Colors.black,
-        child: GestureDetector(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final previewAspectRatio = _effectivePreviewAspectRatio(controller);
+        final viewportAspectRatio =
+            constraints.maxWidth / constraints.maxHeight;
+        final scale = previewAspectRatio > viewportAspectRatio
+            ? previewAspectRatio / viewportAspectRatio
+            : viewportAspectRatio / previewAspectRatio;
+
+        return GestureDetector(
           onTapDown: (details) {
-            final box = context.findRenderObject() as RenderBox?;
-            final size = box?.size;
-            if (size == null) {
-              return;
-            }
             viewModel.handlePreviewTap(
               localPosition: details.localPosition,
-              previewSize: size,
+              previewSize: constraints.biggest,
             );
           },
-          child: Stack(
-            fit: StackFit.expand,
-            children: <Widget>[
-              Positioned.fill(
-                child: FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: 1,
-                    height: 1 / controller.value.aspectRatio,
+          child: ClipRect(
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                Transform.scale(
+                  scale: scale,
+                  child: Center(
                     child: CameraPreview(controller),
                   ),
                 ),
-              ),
-              const Positioned.fill(child: _RuleOfThirdsOverlay()),
-              if (viewModel.focusReticle case final point?)
-                Align(
-                  alignment: Alignment(
-                    point.dx * 2 - 1,
-                    point.dy * 2 - 1,
-                  ),
-                  child: Container(
-                    width: 66,
-                    height: 66,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: const Color(0xFFFFD24C)),
-                      borderRadius: BorderRadius.circular(18),
+                const Positioned.fill(child: _RuleOfThirdsOverlay()),
+                if (viewModel.focusReticle case final point?)
+                  Align(
+                    alignment: Alignment(
+                      point.dx * 2 - 1,
+                      point.dy * 2 - 1,
+                    ),
+                    child: Container(
+                      width: 66,
+                      height: 66,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: const Color(0xFFFFD24C)),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
                     ),
                   ),
-                ),
-              Positioned(
-                left: 14,
-                top: 14,
-                child: _MetadataCard(viewModel: viewModel),
-              ),
-              if (viewModel.isRecording)
-                Positioned(
-                  right: 14,
-                  top: 14,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xBB0D0D0D),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFFF453A),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          viewModel.formatDuration(viewModel.recordingDuration),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontFeatures: <FontFeature>[
-                              FontFeature.tabularFigures(),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  double _effectivePreviewAspectRatio(CameraController controller) {
+    final orientation = controller.value.previewPauseOrientation ??
+        controller.value.lockedCaptureOrientation ??
+        controller.value.recordingOrientation ??
+        controller.value.deviceOrientation;
+
+    final landscapeOrientations = <DeviceOrientation>{
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    };
+
+    if (landscapeOrientations.contains(orientation)) {
+      return controller.value.aspectRatio;
+    }
+    return 1 / controller.value.aspectRatio;
+  }
+}
+
+class _PreviewScrim extends StatelessWidget {
+  const _PreviewScrim();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[
+              Color(0x77000000),
+              Color(0x08000000),
+              Color(0x08000000),
+              Color(0xAA000000),
             ],
+            stops: <double>[0, 0.16, 0.7, 1],
           ),
         ),
       ),
@@ -260,8 +165,8 @@ class _PreviewSurface extends StatelessWidget {
   }
 }
 
-class _MetadataCard extends StatelessWidget {
-  const _MetadataCard({
+class _TopBar extends StatelessWidget {
+  const _TopBar({
     required this.viewModel,
   });
 
@@ -269,35 +174,47 @@ class _MetadataCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final format = viewModel.selectedFormat;
-    if (format == null) {
-      return const SizedBox.shrink();
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xAA060606),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final timerText = viewModel.isRecording
+        ? viewModel.formatDuration(viewModel.recordingDuration)
+        : '00:00';
+
+    return SizedBox(
+      height: 36,
+      child: Stack(
+        alignment: Alignment.center,
         children: <Widget>[
-          Text(
-            '${format.width}×${format.height}',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${viewModel.selectedFps} fps • ${viewModel.formatShutter(viewModel.shutterMicros)} • ISO ${viewModel.iso.round()}',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white70,
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _TopIconButton(
+              icon: viewModel.torchEnabled
+                  ? CupertinoIcons.bolt_fill
+                  : CupertinoIcons.bolt_slash_fill,
+              onTap: () => viewModel.setTorchEnabled(!viewModel.torchEnabled),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            '${viewModel.whiteBalanceKelvin}K • ${viewModel.sampleRateHz} Hz IMU',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white60,
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: const Color(0x22101010),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                timerText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: _TopIconButton(
+              icon: CupertinoIcons.settings,
+              onTap: () => _openSettings(context, viewModel),
             ),
           ),
         ],
@@ -306,207 +223,30 @@ class _MetadataCard extends StatelessWidget {
   }
 }
 
-class _ManualPanel extends StatelessWidget {
-  const _ManualPanel({
-    required this.viewModel,
+class _TopIconButton extends StatelessWidget {
+  const _TopIconButton({
+    required this.icon,
+    required this.onTap,
   });
 
-  final CameraViewModel viewModel;
+  final IconData icon;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-      decoration: BoxDecoration(
-        color: const Color(0xCC111111),
-        borderRadius: BorderRadius.circular(28),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: ManualControlPanel.values.map((panel) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: Text(_panelLabel(panel)),
-                    selected: viewModel.activePanel == panel,
-                    onSelected: (_) => viewModel.selectPanel(panel),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          const SizedBox(height: 14),
-          _buildPanelContent(context),
-        ],
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: const Color(0x22101010),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Icon(icon, color: Colors.white, size: 17),
       ),
     );
-  }
-
-  Widget _buildPanelContent(BuildContext context) {
-    switch (viewModel.activePanel) {
-      case ManualControlPanel.resolution:
-        final formats = viewModel.capabilities?.formats ?? const <CameraFormatOption>[];
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: formats.map((format) {
-            final selected = format == viewModel.selectedFormat;
-            return FilterChip(
-              label: Text(format.label),
-              selected: selected,
-              onSelected: (_) => viewModel.selectFormat(format),
-            );
-          }).toList(),
-        );
-      case ManualControlPanel.fps:
-        final format = viewModel.selectedFormat;
-        final fpsOptions = format?.fpsOptions ?? const <int>[];
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: fpsOptions.map((fps) {
-            return FilterChip(
-              label: Text('$fps fps'),
-              selected: fps == viewModel.selectedFps,
-              onSelected: (_) => viewModel.selectFps(fps),
-            );
-          }).toList(),
-        );
-      case ManualControlPanel.shutter:
-        final caps = viewModel.capabilities;
-        if (caps == null) {
-          return const SizedBox.shrink();
-        }
-        return _LabeledSlider(
-          title: 'Shutter',
-          valueLabel: viewModel.formatShutter(viewModel.shutterMicros),
-          min: caps.minShutterMicros.toDouble(),
-          max: caps.maxShutterMicros.toDouble(),
-          value: viewModel.shutterMicros.toDouble(),
-          onChanged: viewModel.setShutterMicros,
-        );
-      case ManualControlPanel.iso:
-        final caps = viewModel.capabilities;
-        if (caps == null) {
-          return const SizedBox.shrink();
-        }
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            _ModeSegment(
-              labels: const <String>['Auto', 'Manual'],
-              index: viewModel.exposureMode == ExposureAssistMode.auto ? 0 : 1,
-              onChanged: (index) => viewModel.setExposureMode(
-                index == 0
-                    ? ExposureAssistMode.auto
-                    : ExposureAssistMode.custom,
-              ),
-            ),
-            const SizedBox(height: 12),
-            _LabeledSlider(
-              title: 'ISO',
-              valueLabel: viewModel.iso.round().toString(),
-              min: caps.minIso,
-              max: caps.maxIso,
-              value: viewModel.iso,
-              onChanged: viewModel.exposureMode == ExposureAssistMode.auto
-                  ? null
-                  : viewModel.setIso,
-            ),
-          ],
-        );
-      case ManualControlPanel.whiteBalance:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            _ModeSegment(
-              labels: const <String>['Auto', 'Locked'],
-              index:
-                  viewModel.whiteBalanceMode == WhiteBalanceAssistMode.auto ? 0 : 1,
-              onChanged: (index) => viewModel.setWhiteBalanceMode(
-                index == 0
-                    ? WhiteBalanceAssistMode.auto
-                    : WhiteBalanceAssistMode.locked,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: CameraViewModel.whiteBalanceOptions.map((value) {
-                return FilterChip(
-                  label: Text('${value}K'),
-                  selected: value == viewModel.whiteBalanceKelvin,
-                  onSelected: viewModel.whiteBalanceMode ==
-                          WhiteBalanceAssistMode.auto
-                      ? null
-                      : (_) => viewModel.setWhiteBalanceKelvin(value),
-                );
-              }).toList(),
-            ),
-          ],
-        );
-      case ManualControlPanel.focus:
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            _ModeSegment(
-              labels: const <String>['Auto', 'Manual'],
-              index: viewModel.focusMode == FocusAssistMode.auto ? 0 : 1,
-              onChanged: (index) => viewModel.setFocusMode(
-                index == 0 ? FocusAssistMode.auto : FocusAssistMode.locked,
-              ),
-            ),
-            const SizedBox(height: 12),
-            _LabeledSlider(
-              title: 'Focus',
-              valueLabel: viewModel.manualFocus.toStringAsFixed(2),
-              min: 0,
-              max: 1,
-              value: viewModel.manualFocus,
-              onChanged: viewModel.focusMode == FocusAssistMode.auto
-                  ? null
-                  : viewModel.setManualFocus,
-            ),
-          ],
-        );
-      case ManualControlPanel.sampleRate:
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: CameraViewModel.sampleRateOptions.map((value) {
-            return FilterChip(
-              label: Text('$value Hz'),
-              selected: value == viewModel.sampleRateHz,
-              onSelected: (_) => viewModel.setSampleRate(value),
-            );
-          }).toList(),
-        );
-    }
-  }
-
-  String _panelLabel(ManualControlPanel panel) {
-    switch (panel) {
-      case ManualControlPanel.resolution:
-        return 'RES';
-      case ManualControlPanel.fps:
-        return 'FPS';
-      case ManualControlPanel.shutter:
-        return 'SHT';
-      case ManualControlPanel.iso:
-        return 'ISO';
-      case ManualControlPanel.whiteBalance:
-        return 'WB';
-      case ManualControlPanel.focus:
-        return 'FOCUS';
-      case ManualControlPanel.sampleRate:
-        return 'IMU';
-    }
   }
 }
 
@@ -519,167 +259,52 @@ class _BottomChrome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: _FooterDetail(
-              title: 'Last',
-              value: viewModel.lastSavedVideoPath == null
-                  ? 'No clip saved'
-                  : 'Saved .mov + .gcsv',
-              subtitle: viewModel.lastSavedVideoPath,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0x22101010),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Text(
+            viewModel.compactFormatLabel,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.3,
             ),
           ),
-          GestureDetector(
-            onTap: viewModel.isRecording
-                ? viewModel.stopRecording
-                : viewModel.startRecording,
-            child: Container(
-              width: 92,
-              height: 92,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 6),
-              ),
-              child: Center(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  width: viewModel.isRecording ? 34 : 68,
-                  height: viewModel.isRecording ? 34 : 68,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFF3B30),
-                    borderRadius: BorderRadius.circular(
-                      viewModel.isRecording ? 10 : 34,
-                    ),
+        ),
+        const SizedBox(height: 16),
+        GestureDetector(
+          onTap: viewModel.isRecording
+              ? viewModel.stopRecording
+              : viewModel.startRecording,
+          child: Container(
+            width: 68,
+            height: 68,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 5),
+            ),
+            child: Center(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: viewModel.isRecording ? 24 : 52,
+                height: viewModel.isRecording ? 24 : 52,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF3B30),
+                  borderRadius: BorderRadius.circular(
+                    viewModel.isRecording ? 8 : 26,
                   ),
                 ),
               ),
             ),
           ),
-          Expanded(
-            child: _FooterDetail(
-              title: 'Lens',
-              value: 'Rear Wide',
-              subtitle: 'iPhone 8 • Gyro + Gravity ACC',
-              alignEnd: true,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FooterDetail extends StatelessWidget {
-  const _FooterDetail({
-    required this.title,
-    required this.value,
-    required this.subtitle,
-    this.alignEnd = false,
-  });
-
-  final String title;
-  final String value;
-  final String? subtitle;
-  final bool alignEnd;
-
-  @override
-  Widget build(BuildContext context) {
-    final alignment =
-        alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start;
-    return Column(
-      crossAxisAlignment: alignment,
-      children: <Widget>[
-        Text(
-          title.toUpperCase(),
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            color: const Color(0xFFFFCC33),
-          ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          textAlign: alignEnd ? TextAlign.right : TextAlign.left,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        if (subtitle != null) ...<Widget>[
-          const SizedBox(height: 4),
-          Text(
-            subtitle!,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: alignEnd ? TextAlign.right : TextAlign.left,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.white60,
-            ),
-          ),
-        ],
       ],
-    );
-  }
-}
-
-class _InfoPill extends StatelessWidget {
-  const _InfoPill({
-    required this.label,
-    this.highlighted = false,
-  });
-
-  final String label;
-  final bool highlighted;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: highlighted ? const Color(0xFFFFCC33) : const Color(0x221A1A1A),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-          color: highlighted ? Colors.black : Colors.white,
-        ),
-      ),
-    );
-  }
-}
-
-class _TogglePill extends StatelessWidget {
-  const _TogglePill({
-    required this.label,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: enabled ? const Color(0x22FFCC33) : const Color(0x221A1A1A),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: enabled ? const Color(0xFFFFCC33) : Colors.transparent,
-          ),
-        ),
-        child: Text(
-          label,
-          style: Theme.of(context).textTheme.labelLarge,
-        ),
-      ),
     );
   }
 }
@@ -767,6 +392,334 @@ class _ModeSegment extends StatelessWidget {
   }
 }
 
+class _SettingsSection extends StatelessWidget {
+  const _SettingsSection({
+    required this.title,
+    required this.child,
+  });
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: const Color(0xFFFFCC33),
+          ),
+        ),
+        const SizedBox(height: 10),
+        child,
+      ],
+    );
+  }
+}
+
+class _SettingsSheet extends StatefulWidget {
+  const _SettingsSheet({
+    required this.viewModel,
+  });
+
+  final CameraViewModel viewModel;
+
+  @override
+  State<_SettingsSheet> createState() => _SettingsSheetState();
+}
+
+class _SettingsSheetState extends State<_SettingsSheet> {
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: widget.viewModel,
+      builder: (context, _) {
+        final viewModel = widget.viewModel;
+        final formats =
+            viewModel.capabilities?.formats ?? const <CameraFormatOption>[];
+        final fpsOptions = viewModel.selectedFormat?.fpsOptions ?? const <int>[];
+
+        return Scaffold(
+          backgroundColor: const Color(0xFF080808),
+          body: SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                8,
+                8,
+                18,
+                24 + MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        GestureDetector(
+                          onTap: () {
+                            FocusManager.instance.primaryFocus?.unfocus();
+                            Navigator.of(context).pop();
+                          },
+                          behavior: HitTestBehavior.opaque,
+                          child: const SizedBox(
+                            width: 24,
+                            height: 28,
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Icon(
+                                CupertinoIcons.back,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Settings',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    _SettingsSection(
+                      title: 'Resolution',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: formats.map((format) {
+                          final selected = format == viewModel.selectedFormat;
+                          final label = switch ((format.width, format.height)) {
+                            (3840, 2160) => '4K',
+                            (1920, 1080) => '1080p',
+                            _ => format.label,
+                          };
+                          return FilterChip(
+                            label: Text(label),
+                            selected: selected,
+                            onSelected: (_) => viewModel.selectFormat(format),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _SettingsSection(
+                      title: 'Frame Rate',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: fpsOptions.map((fps) {
+                          return FilterChip(
+                            label: Text('$fps fps'),
+                            selected: fps == viewModel.selectedFps,
+                            onSelected: (_) => viewModel.selectFps(fps),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _SettingsSection(
+                      title: 'Stabilization',
+                      child: SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Enable stabilization'),
+                        subtitle: viewModel.motionDataEnabled
+                            ? const Text(
+                                'Turn off motion data to enable stabilization.',
+                              )
+                            : null,
+                        value: viewModel.stabilizationEnabled,
+                        onChanged: viewModel.motionDataEnabled
+                            ? null
+                            : viewModel.setStabilizationEnabled,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _SettingsSection(
+                      title: 'Exposure',
+                      child: Column(
+                        children: <Widget>[
+                          _ModeSegment(
+                            labels: const <String>['Auto', 'Manual'],
+                            index:
+                                viewModel.exposureMode == ExposureAssistMode.auto
+                                ? 0
+                                : 1,
+                            onChanged: (index) => viewModel.setExposureMode(
+                              index == 0
+                                  ? ExposureAssistMode.auto
+                                  : ExposureAssistMode.custom,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          if (viewModel.capabilities case final caps?)
+                            _LabeledSlider(
+                              title: 'ISO',
+                              valueLabel: viewModel.iso.round().toString(),
+                              min: caps.minIso,
+                              max: caps.maxIso,
+                              value: viewModel.iso,
+                              onChanged:
+                                  viewModel.exposureMode ==
+                                      ExposureAssistMode.auto
+                                  ? null
+                                  : viewModel.setIso,
+                            ),
+                          if (viewModel.capabilities case final caps?)
+                            _LabeledSlider(
+                              title: 'Shutter',
+                              valueLabel: viewModel.formatShutter(
+                                viewModel.shutterMicros,
+                              ),
+                              min: caps.minShutterMicros.toDouble(),
+                              max: caps.maxShutterMicros.toDouble(),
+                              value: viewModel.shutterMicros.toDouble(),
+                              onChanged: viewModel.setShutterMicros,
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _SettingsSection(
+                      title: 'Focus',
+                      child: Column(
+                        children: <Widget>[
+                          _ModeSegment(
+                            labels: const <String>['Auto', 'Manual'],
+                            index:
+                                viewModel.focusMode == FocusAssistMode.auto
+                                ? 0
+                                : 1,
+                            onChanged: (index) => viewModel.setFocusMode(
+                              index == 0
+                                  ? FocusAssistMode.auto
+                                  : FocusAssistMode.locked,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _LabeledSlider(
+                            title: 'Focus',
+                            valueLabel: viewModel.manualFocus.toStringAsFixed(2),
+                            min: 0,
+                            max: 1,
+                            value: viewModel.manualFocus,
+                            onChanged:
+                                viewModel.focusMode == FocusAssistMode.auto
+                                ? null
+                                : viewModel.setManualFocus,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _SettingsSection(
+                      title: 'White Balance',
+                      child: Column(
+                        children: <Widget>[
+                          _ModeSegment(
+                            labels: const <String>['Auto', 'Locked'],
+                            index:
+                                viewModel.whiteBalanceMode ==
+                                    WhiteBalanceAssistMode.auto
+                                ? 0
+                                : 1,
+                            onChanged: (index) => viewModel.setWhiteBalanceMode(
+                              index == 0
+                                  ? WhiteBalanceAssistMode.auto
+                                  : WhiteBalanceAssistMode.locked,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: CameraViewModel.whiteBalanceOptions.map((
+                              value,
+                            ) {
+                              return FilterChip(
+                                label: Text('${value}K'),
+                                selected: value == viewModel.whiteBalanceKelvin,
+                                onSelected:
+                                    viewModel.whiteBalanceMode ==
+                                        WhiteBalanceAssistMode.auto
+                                    ? null
+                                    : (_) => viewModel.setWhiteBalanceKelvin(
+                                      value,
+                                    ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _SettingsSection(
+                      title: 'Motion Logging',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          SwitchListTile.adaptive(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Record motion data'),
+                            subtitle: Text(
+                              viewModel.motionDataSupported
+                                  ? 'Detected ${viewModel.motionDataRateRangeLabel}'
+                                  : 'Motion sensors unavailable',
+                            ),
+                            value: viewModel.motionDataEnabled,
+                            onChanged: viewModel.stabilizationEnabled
+                                ? null
+                                : viewModel.motionDataSupported
+                                ? viewModel.setMotionDataEnabled
+                                : null,
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: viewModel.availableSampleRates.map((
+                              value,
+                            ) {
+                              return FilterChip(
+                                label: Text('$value Hz'),
+                                selected: value == viewModel.sampleRateHz,
+                                onSelected: viewModel.motionDataEnabled
+                                    ? (_) => viewModel.setSampleRate(value)
+                                    : null,
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            viewModel.motionDataEnabled
+                                ? 'Uses gyro + accelerometer with gravity included.'
+                                : 'Motion logging off. No .gcsv file is written.',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _ErrorState extends StatelessWidget {
   const _ErrorState({
     required this.message,
@@ -836,54 +789,13 @@ class _RuleOfThirdsPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-Future<void> _showAdvancedSheet(
+Future<void> _openSettings(
   BuildContext context,
   CameraViewModel viewModel,
-) async {
-  final controller = TextEditingController(text: viewModel.imuOrientation);
-  await showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: const Color(0xFF121212),
-    builder: (context) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text('Advanced', style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                labelText: 'IMU orientation',
-                hintText: 'XYZ',
-              ),
-              onSubmitted: (value) => viewModel.setImuOrientation(value),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Use Gyroflow orientation syntax. Default is `XYZ`.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Colors.white60,
-              ),
-            ),
-            const SizedBox(height: 18),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: () {
-                  viewModel.setImuOrientation(controller.text.trim());
-                  Navigator.of(context).pop();
-                },
-                child: const Text('Apply'),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
+) {
+  return Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      builder: (_) => _SettingsSheet(viewModel: viewModel),
+    ),
   );
-  controller.dispose();
 }

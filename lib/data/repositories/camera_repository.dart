@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 
 import '../models/camera_capabilities.dart';
 import '../models/manual_camera_settings.dart';
+import '../models/motion_data_capabilities.dart';
 import '../services/ios_camera_bridge.dart';
 
 class CameraRepository {
@@ -22,6 +23,10 @@ class CameraRepository {
 
   Future<CameraCapabilities> getRearCameraCapabilities() {
     return _iosCameraBridge.getRearCameraCapabilities();
+  }
+
+  Future<MotionDataCapabilities> getMotionDataCapabilities() {
+    return _iosCameraBridge.getMotionDataCapabilities();
   }
 
   Future<void> applyCaptureFormat(ManualCameraSettings settings) {
