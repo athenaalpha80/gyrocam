@@ -1,7 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../../data/models/camera_capabilities.dart';
 import '../../../../data/models/manual_camera_settings.dart';
