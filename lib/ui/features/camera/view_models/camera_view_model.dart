@@ -460,10 +460,11 @@ class CameraViewModel extends ChangeNotifier {
     _errorMessage = null;
     _isStartingRecording = true;
     _notify();
-    _activeSessionPaths = await _recordingStorageService.createSessionPaths();
+    _nativeApplyDebounce?.cancel();
 
     try {
-      await _applyCurrentSettings();
+      _activeSessionPaths = await _recordingStorageService.createSessionPaths();
+      await controller.prepareForVideoRecording();
       if (_motionDataEnabled) {
         await _imuLoggingService.start(
           paths: _activeSessionPaths!,
@@ -471,7 +472,6 @@ class CameraViewModel extends ChangeNotifier {
           orientation: defaultImuOrientation,
         );
       }
-      await controller.prepareForVideoRecording();
       await controller.startVideoRecording();
       _isRecording = true;
       _recordingDuration = Duration.zero;
