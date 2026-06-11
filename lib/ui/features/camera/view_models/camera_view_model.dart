@@ -1,9 +1,12 @@
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:async';
+import 'dart:math' show atan2, pi, sqrt;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:sensors_plus/sensors_plus.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../../data/models/camera_capabilities.dart';
 import '../../../../data/models/manual_camera_settings.dart';
@@ -49,6 +52,8 @@ class CameraViewModel extends ChangeNotifier {
   bool get isInitializing => _isInitializing;
 
   bool _isRecording = false;
+  final bool _isOrientationLocked = false;
+  bool get isOrientationLocked => _isOrientationLocked;
   bool get isRecording => _isRecording;
 
   bool _isStartingRecording = false;
@@ -117,11 +122,22 @@ class CameraViewModel extends ChangeNotifier {
   Offset? _focusReticle;
   Offset? get focusReticle => _focusReticle;
 
+  double get orientationTurns => _orientationTurns;
+
   RecordingSessionPaths? _activeSessionPaths;
   Timer? _recordingTimer;
   Timer? _nativeApplyDebounce;
   Timer? _focusReticleTimer;
   bool _disposed = false;
+
+  double _orientationTurns = 0;
+  double _rawTiltAngle = 0;
+  double get rawTiltAngle => _rawTiltAngle;
+
+  StreamSubscription<AccelerometerEvent>? _tiltSubscription;
+
+  VideoCodec _videoCodec = VideoCodec.h265;
+  VideoCodec get videoCodec => _videoCodec;
 
   static const String defaultImuOrientation = 'XYZ';
   static const List<int> commonIsoValues = <int>[
@@ -184,18 +200,19 @@ class CameraViewModel extends ChangeNotifier {
       return;
     }
 
+    _startTiltTracking();
     _isInitializing = true;
     _errorMessage = null;
     _notify();
 
     try {
       _rearCamera = await _cameraRepository.getRearCameraDescription();
-      final rawCapabilities =
-          await _cameraRepository.getRearCameraCapabilities();
+      final rawCapabilities = await _cameraRepository
+          .getRearCameraCapabilities();
       _capabilities = _filterCapabilities(rawCapabilities);
       try {
-        _motionDataCapabilities =
-            await _cameraRepository.getMotionDataCapabilities();
+        _motionDataCapabilities = await _cameraRepository
+            .getMotionDataCapabilities();
       } catch (_) {
         _motionDataCapabilities = const MotionDataCapabilities.safeFallback();
       }
@@ -224,8 +241,9 @@ class CameraViewModel extends ChangeNotifier {
   bool get isQuickControlOpen => _activeQuickControl != QuickControlPanel.none;
 
   Future<void> toggleQuickControl(QuickControlPanel panel) async {
-    _activeQuickControl =
-        _activeQuickControl == panel ? QuickControlPanel.none : panel;
+    _activeQuickControl = _activeQuickControl == panel
+        ? QuickControlPanel.none
+        : panel;
     _notify();
   }
 
@@ -272,6 +290,13 @@ class CameraViewModel extends ChangeNotifier {
       return;
     }
     _sampleRateHz = hz;
+    _notify();
+  }
+
+  Future<void> setVideoCodec(VideoCodec codec) async {
+    if (_videoCodec == codec) return;
+    _videoCodec = codec;
+    _scheduleNativeApply();
     _notify();
   }
 
@@ -342,9 +367,10 @@ class CameraViewModel extends ChangeNotifier {
     if (_exposureMode == ExposureAssistMode.auto) {
       _exposureMode = ExposureAssistMode.custom;
     }
-    _shutterMicros = value
-        .round()
-        .clamp(capabilities.minShutterMicros, capabilities.maxShutterMicros);
+    _shutterMicros = value.round().clamp(
+      capabilities.minShutterMicros,
+      capabilities.maxShutterMicros,
+    );
     _scheduleNativeApply();
     _notify();
   }
@@ -377,7 +403,8 @@ class CameraViewModel extends ChangeNotifier {
       if (!enabled) {
         await controller.setVideoStabilizationMode(VideoStabilizationMode.off);
       } else {
-        final supported = await controller.getSupportedVideoStabilizationModes();
+        final supported = await controller
+            .getSupportedVideoStabilizationModes();
         final preferred = supported.toList()
           ..sort((left, right) => left.index.compareTo(right.index));
         final mode = preferred.lastWhere(
@@ -452,10 +479,11 @@ class CameraViewModel extends ChangeNotifier {
     _errorMessage = null;
     _isStartingRecording = true;
     _notify();
-    _activeSessionPaths = await _recordingStorageService.createSessionPaths();
+    _nativeApplyDebounce?.cancel();
 
     try {
-      await _applyCurrentSettings();
+      _activeSessionPaths = await _recordingStorageService.createSessionPaths();
+      await controller.prepareForVideoRecording();
       if (_motionDataEnabled) {
         await _imuLoggingService.start(
           paths: _activeSessionPaths!,
@@ -463,7 +491,10 @@ class CameraViewModel extends ChangeNotifier {
           orientation: defaultImuOrientation,
         );
       }
-      await controller.prepareForVideoRecording();
+
+      await WakelockPlus.enable();
+      await controller.lockCaptureOrientation();
+
       await controller.startVideoRecording();
       _isRecording = true;
       _recordingDuration = Duration.zero;
@@ -495,6 +526,7 @@ class CameraViewModel extends ChangeNotifier {
 
     try {
       final file = await controller.stopVideoRecording();
+      await controller.unlockCaptureOrientation();
       if (_motionDataEnabled) {
         await _imuLoggingService.stop();
       }
@@ -507,6 +539,7 @@ class CameraViewModel extends ChangeNotifier {
     } catch (error) {
       _errorMessage = error.toString();
     } finally {
+      await WakelockPlus.disable();
       _isRecording = false;
       _activeSessionPaths = null;
       _recordingTimer?.cancel();
@@ -541,7 +574,9 @@ class CameraViewModel extends ChangeNotifier {
 
       await controller.initialize();
       await controller.setVideoStabilizationMode(VideoStabilizationMode.off);
-      await controller.setFlashMode(_torchEnabled ? FlashMode.torch : FlashMode.off);
+      await controller.setFlashMode(
+        _torchEnabled ? FlashMode.torch : FlashMode.off,
+      );
       _minZoom = await controller.getMinZoomLevel();
       _maxZoom = await controller.getMaxZoomLevel();
       _zoom = _zoom.clamp(_minZoom, _maxZoom).toDouble();
@@ -577,6 +612,7 @@ class CameraViewModel extends ChangeNotifier {
       shutterMicros: _shutterMicros,
       whiteBalanceMode: _whiteBalanceMode,
       whiteBalanceKelvin: _whiteBalanceKelvin,
+      videoCodec: _videoCodec,
     );
 
     await _cameraRepository.applyCaptureFormat(settings);
@@ -598,6 +634,32 @@ class CameraViewModel extends ChangeNotifier {
       const Duration(milliseconds: 60),
       () => _applyCurrentSettings(),
     );
+  }
+
+  void _startTiltTracking() {
+    _tiltSubscription?.cancel();
+    _tiltSubscription = accelerometerEventStream(
+      samplingPeriod: const Duration(milliseconds: 33),
+    ).listen(_onAccelerometerEvent);
+  }
+
+  void _onAccelerometerEvent(AccelerometerEvent event) {
+    final xyMagnitude = sqrt(event.x * event.x + event.y * event.y);
+    if (xyMagnitude < 0.5) return;
+
+    _rawTiltAngle = atan2(event.x, -event.y);
+    final turns = _snappedTurns(_rawTiltAngle);
+    if (turns != _orientationTurns) {
+      _orientationTurns = turns;
+      _notify();
+    }
+  }
+
+  double _snappedTurns(double angle) {
+    if (angle > pi * 0.75 || angle < -pi * 0.75) return 0;
+    if (angle > pi * 0.25) return 0.25;
+    if (angle < -pi * 0.25) return -0.25;
+    return 0;
   }
 
   CameraFormatOption _pickDefaultFormat(List<CameraFormatOption> formats) {
@@ -738,28 +800,28 @@ class CameraViewModel extends ChangeNotifier {
   }
 
   CameraCapabilities _filterCapabilities(CameraCapabilities capabilities) {
-    const allowedResolutions = <String>{
-      '3840x2160',
-      '1920x1080',
-    };
+    const allowedResolutions = <String>{'3840x2160', '1920x1080'};
     const allowedFps = <int>{24, 30, 60};
 
-    final filteredFormats = capabilities.formats
-        .where((format) => allowedResolutions.contains('${format.width}x${format.height}'))
-        .map((format) {
-          final filteredFps = format.fpsOptions
-              .where(allowedFps.contains)
-              .toList()
-            ..sort();
-          return CameraFormatOption(
-            width: format.width,
-            height: format.height,
-            fpsOptions: filteredFps,
-          );
-        })
-        .where((format) => format.fpsOptions.isNotEmpty)
-        .toList()
-      ..sort(CameraFormatOption.compareByQuality);
+    final filteredFormats =
+        capabilities.formats
+            .where(
+              (format) => allowedResolutions.contains(
+                '${format.width}x${format.height}',
+              ),
+            )
+            .map((format) {
+              final filteredFps =
+                  format.fpsOptions.where(allowedFps.contains).toList()..sort();
+              return CameraFormatOption(
+                width: format.width,
+                height: format.height,
+                fpsOptions: filteredFps,
+              );
+            })
+            .where((format) => format.fpsOptions.isNotEmpty)
+            .toList()
+          ..sort(CameraFormatOption.compareByQuality);
 
     return CameraCapabilities(
       formats: filteredFormats,
@@ -781,6 +843,7 @@ class CameraViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _tiltSubscription?.cancel();
     _nativeApplyDebounce?.cancel();
     _recordingTimer?.cancel();
     _focusReticleTimer?.cancel();

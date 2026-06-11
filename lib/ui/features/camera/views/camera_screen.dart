@@ -1,17 +1,13 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../../data/models/camera_capabilities.dart';
 import '../../../../data/models/manual_camera_settings.dart';
 import '../view_models/camera_view_model.dart';
 
 class CameraScreen extends StatelessWidget {
-  const CameraScreen({
-    super.key,
-    required this.viewModel,
-  });
+  const CameraScreen({super.key, required this.viewModel});
 
   final CameraViewModel viewModel;
 
@@ -55,9 +51,7 @@ class CameraScreen extends StatelessWidget {
 }
 
 class _PreviewSurface extends StatelessWidget {
-  const _PreviewSurface({
-    required this.viewModel,
-  });
+  const _PreviewSurface({required this.viewModel});
 
   final CameraViewModel viewModel;
 
@@ -74,14 +68,12 @@ class _PreviewSurface extends StatelessWidget {
     }
 
     if (viewModel.isInitializing || controller == null) {
-      return const Center(
-        child: CircularProgressIndicator(strokeWidth: 2),
-      );
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final previewAspectRatio = _effectivePreviewAspectRatio(controller);
+        final previewAspectRatio = 1 / controller.value.aspectRatio;
         final viewportAspectRatio =
             constraints.maxWidth / constraints.maxHeight;
         final scale = previewAspectRatio > viewportAspectRatio
@@ -101,17 +93,12 @@ class _PreviewSurface extends StatelessWidget {
               children: <Widget>[
                 Transform.scale(
                   scale: scale,
-                  child: Center(
-                    child: CameraPreview(controller),
-                  ),
+                  child: Center(child: CameraPreview(controller)),
                 ),
                 const Positioned.fill(child: _RuleOfThirdsOverlay()),
                 if (viewModel.focusReticle case final point?)
                   Align(
-                    alignment: Alignment(
-                      point.dx * 2 - 1,
-                      point.dy * 2 - 1,
-                    ),
+                    alignment: Alignment(point.dx * 2 - 1, point.dy * 2 - 1),
                     child: Container(
                       width: 66,
                       height: 66,
@@ -127,23 +114,6 @@ class _PreviewSurface extends StatelessWidget {
         );
       },
     );
-  }
-
-  double _effectivePreviewAspectRatio(CameraController controller) {
-    final orientation = controller.value.previewPauseOrientation ??
-        controller.value.lockedCaptureOrientation ??
-        controller.value.recordingOrientation ??
-        controller.value.deviceOrientation;
-
-    final landscapeOrientations = <DeviceOrientation>{
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    };
-
-    if (landscapeOrientations.contains(orientation)) {
-      return controller.value.aspectRatio;
-    }
-    return 1 / controller.value.aspectRatio;
   }
 }
 
@@ -173,9 +143,7 @@ class _PreviewScrim extends StatelessWidget {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({
-    required this.viewModel,
-  });
+  const _TopBar({required this.viewModel});
 
   final CameraViewModel viewModel;
 
@@ -197,6 +165,7 @@ class _TopBar extends StatelessWidget {
                   ? CupertinoIcons.bolt_fill
                   : CupertinoIcons.bolt_slash_fill,
               onTap: () => viewModel.setTorchEnabled(!viewModel.torchEnabled),
+              orientationTurns: viewModel.orientationTurns,
             ),
           ),
           Center(
@@ -228,6 +197,7 @@ class _TopBar extends StatelessWidget {
             child: _TopIconButton(
               icon: CupertinoIcons.settings,
               onTap: () => _openSettings(context, viewModel),
+              orientationTurns: viewModel.orientationTurns,
             ),
           ),
         ],
@@ -240,33 +210,38 @@ class _TopIconButton extends StatelessWidget {
   const _TopIconButton({
     required this.icon,
     required this.onTap,
+    required this.orientationTurns,
   });
 
   final IconData icon;
   final VoidCallback onTap;
+  final double orientationTurns;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: const Color(0x22101010),
-          borderRadius: BorderRadius.circular(16),
+      child: AnimatedRotation(
+        turns: orientationTurns,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: const Color(0x22101010),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Icon(icon, color: Colors.white, size: 17),
         ),
-        child: Icon(icon, color: Colors.white, size: 17),
       ),
     );
   }
 }
 
 class _BottomChrome extends StatelessWidget {
-  const _BottomChrome({
-    required this.viewModel,
-  });
+  const _BottomChrome({required this.viewModel});
 
   final CameraViewModel viewModel;
 
@@ -324,9 +299,7 @@ class _BottomChrome extends StatelessWidget {
 }
 
 class _QuickControlStrip extends StatelessWidget {
-  const _QuickControlStrip({
-    required this.viewModel,
-  });
+  const _QuickControlStrip({required this.viewModel});
 
   final CameraViewModel viewModel;
 
@@ -343,6 +316,7 @@ class _QuickControlStrip extends StatelessWidget {
                 viewModel.activeQuickControl == QuickControlPanel.resolution,
             onTap: () =>
                 viewModel.toggleQuickControl(QuickControlPanel.resolution),
+            orientationTurns: viewModel.orientationTurns,
           ),
         ),
         Expanded(
@@ -353,6 +327,7 @@ class _QuickControlStrip extends StatelessWidget {
                 viewModel.activeQuickControl == QuickControlPanel.frameRate,
             onTap: () =>
                 viewModel.toggleQuickControl(QuickControlPanel.frameRate),
+            orientationTurns: viewModel.orientationTurns,
           ),
         ),
         Expanded(
@@ -363,6 +338,7 @@ class _QuickControlStrip extends StatelessWidget {
                 viewModel.activeQuickControl == QuickControlPanel.exposure,
             onTap: () =>
                 viewModel.toggleQuickControl(QuickControlPanel.exposure),
+            orientationTurns: viewModel.orientationTurns,
           ),
         ),
         Expanded(
@@ -373,6 +349,7 @@ class _QuickControlStrip extends StatelessWidget {
                 : viewModel.manualFocus.toStringAsFixed(2),
             selected: viewModel.activeQuickControl == QuickControlPanel.focus,
             onTap: () => viewModel.toggleQuickControl(QuickControlPanel.focus),
+            orientationTurns: viewModel.orientationTurns,
           ),
         ),
         Expanded(
@@ -385,6 +362,7 @@ class _QuickControlStrip extends StatelessWidget {
                 viewModel.activeQuickControl == QuickControlPanel.whiteBalance,
             onTap: () =>
                 viewModel.toggleQuickControl(QuickControlPanel.whiteBalance),
+            orientationTurns: viewModel.orientationTurns,
           ),
         ),
       ],
@@ -417,12 +395,14 @@ class _QuickControlButton extends StatelessWidget {
     required this.value,
     required this.selected,
     required this.onTap,
+    required this.orientationTurns,
   });
 
   final String label;
   final String value;
   final bool selected;
   final VoidCallback onTap;
+  final double orientationTurns;
 
   @override
   Widget build(BuildContext context) {
@@ -437,52 +417,52 @@ class _QuickControlButton extends StatelessWidget {
             fontSize: 14,
             fontWeight: FontWeight.w700,
           ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? const Color(0xFFFFCC33) : Colors.white70,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.8,
-              ),
+          child: AnimatedRotation(
+            turns: orientationTurns,
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOutCubic,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: selected ? const Color(0xFFFFCC33) : Colors.white70,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                DefaultTextStyle(
+                  style: TextStyle(
+                    color: selected ? const Color(0xFFFFCC33) : Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  child: Text(value, overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(height: 5),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: selected ? 24 : 0,
+                  height: 2,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFCC33),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 3),
-            DefaultTextStyle(
-              style: TextStyle(
-                color: selected ? const Color(0xFFFFCC33) : Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-              child: Text(
-                value,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(height: 5),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: selected ? 24 : 0,
-              height: 2,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFCC33),
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
       ),
     );
   }
 }
 
 class _QuickControlPanelHost extends StatelessWidget {
-  const _QuickControlPanelHost({
-    required this.viewModel,
-  });
+  const _QuickControlPanelHost({required this.viewModel});
 
   final CameraViewModel viewModel;
 
@@ -531,15 +511,14 @@ class _QuickControlPanelHost extends StatelessWidget {
 }
 
 class _ResolutionQuickControl extends StatelessWidget {
-  const _ResolutionQuickControl({
-    required this.viewModel,
-  });
+  const _ResolutionQuickControl({required this.viewModel});
 
   final CameraViewModel viewModel;
 
   @override
   Widget build(BuildContext context) {
-    final formats = viewModel.capabilities?.formats ?? const <CameraFormatOption>[];
+    final formats =
+        viewModel.capabilities?.formats ?? const <CameraFormatOption>[];
     return Wrap(
       alignment: WrapAlignment.center,
       spacing: 8,
@@ -562,9 +541,7 @@ class _ResolutionQuickControl extends StatelessWidget {
 }
 
 class _FrameRateQuickControl extends StatelessWidget {
-  const _FrameRateQuickControl({
-    required this.viewModel,
-  });
+  const _FrameRateQuickControl({required this.viewModel});
 
   final CameraViewModel viewModel;
 
@@ -622,10 +599,7 @@ class _OptionPill extends StatelessWidget {
 }
 
 class _QuickControlCard extends StatelessWidget {
-  const _QuickControlCard({
-    super.key,
-    required this.child,
-  });
+  const _QuickControlCard({super.key, required this.child});
 
   final Widget child;
 
@@ -642,9 +616,7 @@ class _QuickControlCard extends StatelessWidget {
 }
 
 class _ExposureQuickControl extends StatelessWidget {
-  const _ExposureQuickControl({
-    required this.viewModel,
-  });
+  const _ExposureQuickControl({required this.viewModel});
 
   final CameraViewModel viewModel;
 
@@ -657,10 +629,9 @@ class _ExposureQuickControl extends StatelessWidget {
     }
 
     final isIso = viewModel.activeExposureControl == ExposureControlMode.iso;
-    final currentIsoIndex = isoValues.indexOf(viewModel.iso.round()).clamp(
-      0,
-      isoValues.length - 1,
-    );
+    final currentIsoIndex = isoValues
+        .indexOf(viewModel.iso.round())
+        .clamp(0, isoValues.length - 1);
     final currentShutterIndex = shutterValues
         .indexOf(viewModel.shutterMicros)
         .clamp(0, shutterValues.length - 1);
@@ -718,9 +689,7 @@ class _ExposureQuickControl extends StatelessWidget {
 }
 
 class _FocusQuickControl extends StatelessWidget {
-  const _FocusQuickControl({
-    required this.viewModel,
-  });
+  const _FocusQuickControl({required this.viewModel});
 
   final CameraViewModel viewModel;
 
@@ -740,19 +709,16 @@ class _FocusQuickControl extends StatelessWidget {
 }
 
 class _WhiteBalanceQuickControl extends StatelessWidget {
-  const _WhiteBalanceQuickControl({
-    required this.viewModel,
-  });
+  const _WhiteBalanceQuickControl({required this.viewModel});
 
   final CameraViewModel viewModel;
 
   @override
   Widget build(BuildContext context) {
     final options = CameraViewModel.whiteBalanceOptions;
-    final currentIndex = options.indexOf(viewModel.whiteBalanceKelvin).clamp(
-      0,
-      options.length - 1,
-    );
+    final currentIndex = options
+        .indexOf(viewModel.whiteBalanceKelvin)
+        .clamp(0, options.length - 1);
 
     return _AutoRulerRow(
       valueLabel: '${viewModel.whiteBalanceKelvin}K',
@@ -861,7 +827,9 @@ class _AutoRulerRow extends StatelessWidget {
               trackHeight: 2,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-              tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 1.2),
+              tickMarkShape: const RoundSliderTickMarkShape(
+                tickMarkRadius: 1.2,
+              ),
               activeTickMarkColor: const Color(0xFFFFCC33),
               inactiveTickMarkColor: Colors.white24,
             ),
@@ -892,10 +860,7 @@ class _AutoRulerRow extends StatelessWidget {
 }
 
 class _SettingsSection extends StatelessWidget {
-  const _SettingsSection({
-    required this.title,
-    required this.child,
-  });
+  const _SettingsSection({required this.title, required this.child});
 
   final String title;
   final Widget child;
@@ -907,9 +872,9 @@ class _SettingsSection extends StatelessWidget {
       children: <Widget>[
         Text(
           title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: const Color(0xFFFFCC33),
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(color: const Color(0xFFFFCC33)),
         ),
         const SizedBox(height: 10),
         child,
@@ -919,9 +884,7 @@ class _SettingsSection extends StatelessWidget {
 }
 
 class _SettingsSheet extends StatefulWidget {
-  const _SettingsSheet({
-    required this.viewModel,
-  });
+  const _SettingsSheet({required this.viewModel});
 
   final CameraViewModel viewModel;
 
@@ -1003,6 +966,29 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                     ),
                     const SizedBox(height: 18),
                     _SettingsSection(
+                      title: 'Video Codec',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: <VideoCodec>[VideoCodec.h265, VideoCodec.h264]
+                            .map((codec) {
+                              final selected = codec == viewModel.videoCodec;
+                              return FilterChip(
+                                label: Text(
+                                  codec == VideoCodec.h265
+                                      ? 'HEVC (H.265)'
+                                      : 'H.264',
+                                ),
+                                selected: selected,
+                                onSelected: (_) =>
+                                    viewModel.setVideoCodec(codec),
+                              );
+                            })
+                            .toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _SettingsSection(
                       title: 'Motion Logging',
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1063,10 +1049,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
 }
 
 class _ErrorState extends StatelessWidget {
-  const _ErrorState({
-    required this.message,
-    required this.onRetry,
-  });
+  const _ErrorState({required this.message, required this.onRetry});
 
   final String message;
   final Future<void> Function() onRetry;
@@ -1103,9 +1086,7 @@ class _RuleOfThirdsOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: _RuleOfThirdsPainter(),
-    );
+    return CustomPaint(painter: _RuleOfThirdsPainter());
   }
 }
 
@@ -1131,10 +1112,7 @@ class _RuleOfThirdsPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-Future<void> _openSettings(
-  BuildContext context,
-  CameraViewModel viewModel,
-) {
+Future<void> _openSettings(BuildContext context, CameraViewModel viewModel) {
   return Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
       builder: (_) => _SettingsSheet(viewModel: viewModel),

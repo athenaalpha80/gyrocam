@@ -8,23 +8,23 @@ import '../models/recording_session_paths.dart';
 class RecordingStorageService {
   Future<RecordingSessionPaths> createSessionPaths() async {
     final root = await getApplicationDocumentsDirectory();
-    final recordingsDirectory = Directory(
-      '${root.path}${Platform.pathSeparator}recordings',
-    );
-    await recordingsDirectory.create(recursive: true);
-
     final now = DateTime.now();
-    final stamp =
-        '${now.year}${_two(now.month)}${_two(now.day)}_${_two(now.hour)}${_two(now.minute)}${_two(now.second)}';
-    final baseName = 'gyrocam_$stamp';
-    final videoFileName = '$baseName.mov';
+    final folderStamp =
+        '${now.year}-${_two(now.month)}-${_two(now.day)}-${_two(now.hour)}-${_two(now.minute)}-${_two(now.second)}';
+    final fileStamp =
+        '${now.year}-${_two(now.month)}-${_two(now.day)}-${_two(now.hour)}-${_two(now.minute)}';
+    final sessionDir = Directory(
+      '${root.path}${Platform.pathSeparator}recordings${Platform.pathSeparator}$folderStamp',
+    );
+    await sessionDir.create(recursive: true);
+
+    final videoFileName = 'GC_$fileStamp.mov';
+    final gcsvFileName = 'GC_$fileStamp.gcsv';
 
     return RecordingSessionPaths(
-      baseName: baseName,
-      videoPath:
-          '${recordingsDirectory.path}${Platform.pathSeparator}$videoFileName',
-      gcsvPath:
-          '${recordingsDirectory.path}${Platform.pathSeparator}$baseName.gcsv',
+      baseName: 'GC_$fileStamp',
+      videoPath: '${sessionDir.path}${Platform.pathSeparator}$videoFileName',
+      gcsvPath: '${sessionDir.path}${Platform.pathSeparator}$gcsvFileName',
       videoFileName: videoFileName,
     );
   }
