@@ -6,12 +6,28 @@
     "repo": "gyrocam"
   },
   "ios": {
-    "path": "ios"
+    "path": "ios",
+    "scheme": "",
+    "signing": true
   },
   "flutter": {
     "version": "3.44.1",
     "watch": {}
   },
   "reactNative": {},
-  "mobai": {}
+  "mobai": {
+    "watch": {
+      "dirs": [
+        "lib"
+      ],
+      "patterns": [
+        ".dart"
+      ],
+      "ignore": [
+        ".g.dart",
+        ".freezed.dart"
+      ],
+      "debounce": 100
+    }
+  }
 }
