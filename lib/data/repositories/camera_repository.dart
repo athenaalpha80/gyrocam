@@ -36,4 +36,14 @@ class CameraRepository {
   Future<void> applyManualControls(ManualCameraSettings settings) {
     return _iosCameraBridge.applyManualControls(settings);
   }
+
+  Future<void> applyVideoOrientation({
+    required String videoPath,
+    required int degrees,
+  }) {
+    return _iosCameraBridge.applyVideoOrientation(
+      videoPath: videoPath,
+      degrees: degrees,
+    );
+  }
 }

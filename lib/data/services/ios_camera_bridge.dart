@@ -48,6 +48,19 @@ class IosCameraBridge {
       settings.toManualControlMap(),
     );
   }
+
+  Future<void> applyVideoOrientation({
+    required String videoPath,
+    required int degrees,
+  }) async {
+    await _channel.invokeMethod<void>(
+      'applyVideoOrientation',
+      <String, Object>{
+        'videoPath': videoPath,
+        'degrees': degrees,
+      },
+    );
+  }
 }
 
 class CameraBridgeException implements Exception {
