@@ -33,6 +33,16 @@ final class ManualCameraControlPlugin: NSObject, FlutterPlugin {
         return
       }
       applyManualControls(arguments: arguments, result: result)
+    case "applyVideoOrientation":
+      guard let arguments = call.arguments as? [String: Any],
+        let videoPath = arguments["videoPath"] as? String,
+        let degrees = arguments["degrees"] as? Int
+      else {
+        result(
+          FlutterError(code: "invalid-arguments", message: "Missing videoPath or degrees.", details: nil))
+        return
+      }
+      applyVideoOrientation(videoPath: videoPath, degrees: degrees, result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -314,6 +324,243 @@ final class ManualCameraControlPlugin: NSObject, FlutterPlugin {
         fallback: fallback,
         result: result
       )
+    }
+  }
+
+  private func applyVideoOrientation(videoPath: String, degrees: Int, result: @escaping FlutterResult) {
+    do {
+      try modifyOrientationMatrixInPlace(at: URL(fileURLWithPath: videoPath), degrees: degrees)
+      result(nil)
+    } catch {
+      result(
+        FlutterError(
+          code: "orientation-failed",
+          message: error.localizedDescription,
+          details: nil
+        )
+      )
+    }
+  }
+
+  // MARK: - In-place QuickTime matrix modification (no re-encode)
+
+  private func modifyOrientationMatrixInPlace(at url: URL, degrees: Int) throws {
+    let fileHandle = try FileHandle(forUpdating: url)
+    defer { fileHandle.closeFile() }
+
+    let fileSize = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as! UInt64
+    let (moovOffset, moovSize) = try findMoovRange(fileHandle: fileHandle, fileSize: fileSize)
+
+    try fileHandle.seek(toOffset: moovOffset)
+    guard let moovData = try fileHandle.read(upToCount: Int(moovSize)) else {
+      throw NSError(domain: "gyrocam.orientation", code: 10,
+        userInfo: [NSLocalizedDescriptionKey: "Failed to read moov atom"])
+    }
+
+    var mutableMoov = moovData
+    try modifyVideoTrackMatrix(moovData: &mutableMoov, degrees: degrees)
+
+    try fileHandle.seek(toOffset: moovOffset)
+    try fileHandle.write(Data(mutableMoov))
+  }
+
+  private func findMoovRange(fileHandle: FileHandle, fileSize: UInt64) throws -> (offset: UInt64, size: UInt64) {
+    var offset: UInt64 = 0
+
+    while offset < fileSize {
+      try fileHandle.seek(toOffset: offset)
+      guard let header = try fileHandle.read(upToCount: 8), header.count == 8 else {
+        throw NSError(domain: "gyrocam.orientation", code: 20,
+          userInfo: [NSLocalizedDescriptionKey: "Premature EOF while scanning atoms"])
+      }
+
+      var atomSize = UInt64(
+        header.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
+      )
+      let atomType = String(data: header[4...7], encoding: .ascii) ?? ""
+
+      if atomSize == 1 {
+        guard let extSize = try fileHandle.read(upToCount: 8), extSize.count == 8 else {
+          throw NSError(domain: "gyrocam.orientation", code: 21,
+            userInfo: [NSLocalizedDescriptionKey: "Premature EOF reading extended atom size"])
+        }
+        atomSize = extSize.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self).bigEndian }
+      }
+
+      if atomType == "moov" {
+        return (offset, atomSize)
+      }
+
+      if atomSize == 0 { break }
+      offset += atomSize
+    }
+
+    throw NSError(domain: "gyrocam.orientation", code: 22,
+      userInfo: [NSLocalizedDescriptionKey: "moov atom not found in file"])
+  }
+
+  private func modifyVideoTrackMatrix(moovData: inout Data, degrees: Int) throws {
+    guard let videoTkhdRange = findVideoTkhdRange(in: moovData) else {
+      throw NSError(domain: "gyrocam.orientation", code: 30,
+        userInfo: [NSLocalizedDescriptionKey: "Video track tkhd not found"])
+    }
+
+    let payload = videoTkhdRange.payloadStart
+    let version = moovData[payload]
+
+    let matrixOffset: Int
+    let widthOffset: Int
+    let heightOffset: Int
+    if version == 1 {
+      matrixOffset = 52
+      widthOffset = 52 + 36
+      heightOffset = widthOffset + 4
+    } else {
+      matrixOffset = 40
+      widthOffset = 40 + 36
+      heightOffset = widthOffset + 4
+    }
+
+    func readU32BE(_ pos: Int) -> UInt32 {
+      moovData[pos..<pos + 4].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
+    }
+
+    let trackWidth = Double(readU32BE(payload + widthOffset)) / 65_536.0
+    let trackHeight = Double(readU32BE(payload + heightOffset)) / 65_536.0
+
+    let matrix = buildDisplayMatrix(
+      degrees: degrees,
+      trackWidth: trackWidth,
+      trackHeight: trackHeight
+    )
+
+    let writeStart = payload + matrixOffset
+    for i in 0..<9 {
+      let value = matrix[i]
+      let start = writeStart + i * 4
+      moovData[start..<start + 4] = withUnsafeBytes(of: value.bigEndian) { Data($0) }
+    }
+  }
+
+  private struct AtomRange {
+    let dataOffset: Int
+    let size: Int
+    let payloadStart: Int
+  }
+
+  private func findVideoTkhdRange(in data: Data) -> AtomRange? {
+    var offset = 8  // skip moov header
+    let moovEnd = data.count
+
+    while offset + 8 <= moovEnd {
+      let size = Int(
+        data[offset..<offset + 4].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
+      )
+      let type = String(data: data[offset + 4..<offset + 8], encoding: .ascii) ?? ""
+      guard size >= 8, offset + size <= moovEnd else { break }
+
+      if type == "trak" {
+        if let tkhd = findVideoTkhdInTrak(data: data, trakStart: offset, trakSize: size) {
+          return tkhd
+        }
+      }
+
+      offset += size
+    }
+    return nil
+  }
+
+  private func findVideoTkhdInTrak(data: Data, trakStart: Int, trakSize: Int) -> AtomRange? {
+    var offset = trakStart + 8
+    let trakEnd = trakStart + trakSize
+
+    var isVideoTrack = false
+    var tkhdRange: AtomRange?
+
+    while offset + 8 <= trakEnd {
+      let size = Int(
+        data[offset..<offset + 4].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
+      )
+      let type = String(data: data[offset + 4..<offset + 8], encoding: .ascii) ?? ""
+      guard size >= 8, offset + size <= trakEnd else { break }
+
+      if type == "tkhd" {
+        tkhdRange = AtomRange(
+          dataOffset: offset,
+          size: size,
+          payloadStart: offset + 8
+        )
+      } else if type == "mdia" {
+        isVideoTrack = isHandlerTypeVideo(data: data, mdiaStart: offset, mdiaSize: size)
+      }
+
+      if type == "tkhd" && isVideoTrack {
+        return tkhdRange
+      }
+
+      offset += size
+    }
+
+    // Fallback: if only one tkhd exists and we think it's video
+    if isVideoTrack, let tkhd = tkhdRange {
+      return tkhd
+    }
+    return nil
+  }
+
+  private func isHandlerTypeVideo(data: Data, mdiaStart: Int, mdiaSize: Int) -> Bool {
+    var offset = mdiaStart + 8
+    let mdiaEnd = mdiaStart + mdiaSize
+
+    while offset + 8 <= mdiaEnd {
+      let size = Int(
+        data[offset..<offset + 4].withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian }
+      )
+      let type = String(data: data[offset + 4..<offset + 8], encoding: .ascii) ?? ""
+      guard size >= 8, offset + size <= mdiaEnd else { break }
+
+      if type == "hdlr" {
+        let payloadStart = offset + 8
+        // hdlr: version(1) + flags(3) + pre_defined(4) + handler_type(4)
+        if payloadStart + 12 <= data.count {
+          let handlerType = String(data: data[payloadStart + 8..<payloadStart + 12], encoding: .ascii) ?? ""
+          return handlerType == "vide"
+        }
+        return false
+      }
+
+      offset += size
+    }
+    return false
+  }
+
+  private func buildDisplayMatrix(degrees: Int, trackWidth: Double, trackHeight: Double) -> [UInt32] {
+    // QuickTime display matrix: 9 × 16.16 fixed-point values (big-endian)
+    // [a, b, u, c, d, v, tx, ty, w]
+    // x' = a*x + c*y + tx,  y' = b*x + d*y + ty
+    let one: UInt32 = 0x0001_0000
+    let minusOne: UInt32 = 0xFFFF_0000
+    let zero: UInt32 = 0x0000_0000
+
+    func fixed(_ value: Double) -> UInt32 {
+      return UInt32(max(0, value)) << 16
+    }
+
+    switch degrees {
+    case 0:
+      return [one, zero, zero, zero, one, zero, zero, zero, one]
+
+    case 90:
+      return [zero, one, zero, minusOne, zero, zero, fixed(trackHeight), zero, one]
+
+    case 180:
+      return [minusOne, zero, zero, zero, minusOne, zero, fixed(trackWidth), fixed(trackHeight), one]
+
+    case 270:
+      return [zero, minusOne, zero, one, zero, zero, zero, fixed(trackWidth), one]
+
+    default:
+      return [one, zero, zero, zero, one, zero, zero, zero, one]
     }
   }
 

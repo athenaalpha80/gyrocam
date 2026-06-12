@@ -5,6 +5,7 @@ import 'dart:math' show atan2, pi, sqrt;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -124,6 +125,7 @@ class CameraViewModel extends ChangeNotifier {
 
   double get orientationTurns => _orientationTurns;
 
+  int _recordingOrientationDegrees = 0;
   RecordingSessionPaths? _activeSessionPaths;
   Timer? _recordingTimer;
   Timer? _nativeApplyDebounce;
@@ -492,8 +494,11 @@ class CameraViewModel extends ChangeNotifier {
         );
       }
 
+      _recordingOrientationDegrees = _orientationTurnsToDegrees();
       await WakelockPlus.enable();
-      await controller.lockCaptureOrientation();
+      await controller.lockCaptureOrientation(
+        _orientationTurnsToDeviceOrientation(),
+      );
 
       await controller.startVideoRecording();
       _isRecording = true;
@@ -534,6 +539,12 @@ class CameraViewModel extends ChangeNotifier {
         sourceFile: file,
         target: sessionPaths,
       );
+      try {
+        await _cameraRepository.applyVideoOrientation(
+          videoPath: sessionPaths.videoPath,
+          degrees: _recordingOrientationDegrees,
+        );
+      } catch (_) {}
       _lastSavedVideoPath = sessionPaths.videoPath;
       _lastSavedGcsvPath = _motionDataEnabled ? sessionPaths.gcsvPath : null;
     } catch (error) {
@@ -660,6 +671,18 @@ class CameraViewModel extends ChangeNotifier {
     if (angle > pi * 0.25) return 0.25;
     if (angle < -pi * 0.25) return -0.25;
     return 0;
+  }
+
+  int _orientationTurnsToDegrees() {
+    if (_orientationTurns == 0.25) return 0;
+    if (_orientationTurns == -0.25) return 180;
+    return 90;
+  }
+
+  DeviceOrientation _orientationTurnsToDeviceOrientation() {
+    if (_orientationTurns == 0.25) return DeviceOrientation.landscapeLeft;
+    if (_orientationTurns == -0.25) return DeviceOrientation.landscapeRight;
+    return DeviceOrientation.portraitUp;
   }
 
   CameraFormatOption _pickDefaultFormat(List<CameraFormatOption> formats) {
